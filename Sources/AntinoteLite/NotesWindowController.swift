@@ -85,14 +85,32 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         updateWindowControlsVisibility()
     }
 
+    func createNewNoteAndShow() {
+        store.createNewNote()
+        if !window.isVisible {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            updateWindowControlsVisibility()
+        }
+    }
+
     func windowWillClose(_ notification: Notification) {
         window.orderOut(nil)
         setWindowControlsVisible(false)
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        window.orderOut(nil)
-        setWindowControlsVisible(false)
+        // Keep the note visible when focus moves to another window in this app (e.g. Settings).
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if NSApp.isActive, NSApp.keyWindow != nil {
+                self.setWindowControlsVisible(false)
+                return
+            }
+
+            self.window.orderOut(nil)
+            self.setWindowControlsVisible(false)
+        }
     }
 
     private func updateWindowControlsVisibility() {
