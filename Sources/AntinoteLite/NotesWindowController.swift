@@ -134,6 +134,8 @@ private struct NoteEditorView: View {
             Rectangle()
                 .fill(.ultraThinMaterial)
                 .ignoresSafeArea()
+            DottedPaperOverlay()
+                .ignoresSafeArea()
 
             PlainTextEditor(
                 text: Binding(
@@ -145,6 +147,31 @@ private struct NoteEditorView: View {
         }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.clear)
+    }
+}
+
+private struct DottedPaperOverlay: View {
+    private let spacing: CGFloat = 18
+    private let dotSize: CGFloat = 1.6
+
+    var body: some View {
+        GeometryReader { proxy in
+            Canvas { context, size in
+                let columns = Int(ceil(size.width / spacing))
+                let rows = Int(ceil(size.height / spacing))
+
+                for row in 0...rows {
+                    for column in 0...columns {
+                        let x = CGFloat(column) * spacing
+                        let y = CGFloat(row) * spacing
+                        let rect = CGRect(x: x - dotSize / 2, y: y - dotSize / 2, width: dotSize, height: dotSize)
+                        context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(0.09)))
+                    }
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .allowsHitTesting(false)
+        }
     }
 }
 
