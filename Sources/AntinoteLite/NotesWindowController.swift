@@ -57,6 +57,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                self?.window.orderOut(nil)
                 self?.setWindowControlsVisible(false)
             }
         }
@@ -75,6 +76,11 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        window.orderOut(nil)
+        setWindowControlsVisible(false)
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
         window.orderOut(nil)
         setWindowControlsVisible(false)
     }
