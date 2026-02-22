@@ -157,6 +157,12 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     }
 
     private func handleSearchKey(_ event: NSEvent) -> NSEvent? {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.keyCode == 3, modifiers.contains(.command) {
+            hideSearch()
+            return nil
+        }
+
         switch event.keyCode {
         case 53: // Escape
             hideSearch()
@@ -254,14 +260,12 @@ private struct NoteEditorView: View {
                 )
                 .padding(.top, 8)
                 .padding(.horizontal, 14)
-                .transition(.move(edge: .top).combined(with: .opacity))
                 .zIndex(2)
             }
         }
         .onChange(of: searchState.query) { _, newValue in
             onQueryChange(newValue)
         }
-        .animation(.easeOut(duration: 0.14), value: searchState.isPresented)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.clear)
     }
