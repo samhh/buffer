@@ -50,6 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onToggle: { [weak self] in
                 self?.notesWindowController?.toggleWindow()
             },
+            onSearch: { [weak self] in
+                self?.notesWindowController?.showSearch()
+            },
             onNewNote: { [weak self] in
                 self?.notesWindowController?.createNewNoteAndShow()
             },

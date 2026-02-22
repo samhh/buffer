@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 final class NotesWindowController: NSObject, NSWindowDelegate {
     private let store: NotesStore
+    private let searchState = NoteSearchState()
     private let window: NSWindow
     private var keyMonitor: Any?
     private var mouseMoveMonitor: Any?
@@ -11,7 +12,12 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     init(store: NotesStore) {
         self.store = store
-        let contentView = NoteEditorView(store: store)
+        let contentView = NoteEditorView(
+            store: store,
+            searchState: searchState,
+            onQueryChange: { _ in },
+            onSelectResult: { _ in }
+        )
         let hostingView = NSHostingView(rootView: contentView)
 
         window = NSWindow(
@@ -22,6 +28,18 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         )
 
         super.init()
+
+        let rootView = NoteEditorView(
+            store: store,
+            searchState: searchState,
+            onQueryChange: { [weak self] query in
+                self?.updateSearch(query: query)
+            },
+            onSelectResult: { [weak self] result in
+                self?.openSearchResult(result)
+            }
+        )
+        hostingView.rootView = rootView
 
         window.isReleasedWhenClosed = false
         window.level = .floating
@@ -42,14 +60,26 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             guard self.window.isVisible else { return event }
+            guard self.window.isKeyWindow || self.searchState.isPresented else { return event }
 
-            let isCommandN = event.keyCode == 45 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
+            if self.searchState.isPresented {
+                return self.handleSearchKey(event)
+            }
+
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let isCommandN = event.keyCode == 45 && modifiers.contains(.command)
             if isCommandN {
                 self.store.createNewNote()
                 return nil
             }
 
-            if event.keyCode == 53, self.window.isVisible {
+            let isCommandF = event.keyCode == 3 && modifiers.contains(.command)
+            if isCommandF {
+                self.showSearch()
+                return nil
+            }
+
+            if event.keyCode == 53 {
                 self.window.orderOut(nil)
                 return nil
             }
@@ -75,6 +105,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     func toggleWindow() {
         if window.isVisible {
+            hideSearch()
             window.orderOut(nil)
             setWindowControlsVisible(false)
             return
@@ -94,13 +125,24 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    func showSearch() {
+        if !window.isVisible {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        }
+        searchState.isPresented = true
+        searchState.query = ""
+        searchState.selectedIndex = 0
+        searchState.results = store.searchNotes(query: "")
+    }
+
     func windowWillClose(_ notification: Notification) {
+        hideSearch()
         window.orderOut(nil)
         setWindowControlsVisible(false)
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        // Keep the note visible when focus moves to another window in this app (e.g. Settings).
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if NSApp.isActive, NSApp.keyWindow != nil {
@@ -108,9 +150,53 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
                 return
             }
 
+            self.hideSearch()
             self.window.orderOut(nil)
             self.setWindowControlsVisible(false)
         }
+    }
+
+    private func handleSearchKey(_ event: NSEvent) -> NSEvent? {
+        switch event.keyCode {
+        case 53: // Escape
+            hideSearch()
+            return nil
+        case 125: // Down
+            guard !searchState.results.isEmpty else { return nil }
+            searchState.selectedIndex = min(searchState.selectedIndex + 1, searchState.results.count - 1)
+            return nil
+        case 126: // Up
+            guard !searchState.results.isEmpty else { return nil }
+            searchState.selectedIndex = max(searchState.selectedIndex - 1, 0)
+            return nil
+        case 36, 76: // Return
+            guard searchState.results.indices.contains(searchState.selectedIndex) else { return nil }
+            openSearchResult(searchState.results[searchState.selectedIndex])
+            return nil
+        default:
+            return event
+        }
+    }
+
+    private func hideSearch() {
+        searchState.isPresented = false
+        searchState.query = ""
+        searchState.results = []
+        searchState.selectedIndex = 0
+    }
+
+    private func openSearchResult(_ result: NoteSearchResult) {
+        store.openNote(at: result.fileURL)
+        hideSearch()
+    }
+
+    private func updateSearch(query: String) {
+        searchState.results = store.searchNotes(query: query)
+        if searchState.results.isEmpty {
+            searchState.selectedIndex = 0
+            return
+        }
+        searchState.selectedIndex = min(searchState.selectedIndex, searchState.results.count - 1)
     }
 
     private func updateWindowControlsVisibility() {
@@ -126,11 +212,22 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     }
 }
 
+@MainActor
+private final class NoteSearchState: ObservableObject {
+    @Published var isPresented = false
+    @Published var query = ""
+    @Published var results: [NoteSearchResult] = []
+    @Published var selectedIndex = 0
+}
+
 private struct NoteEditorView: View {
     @ObservedObject var store: NotesStore
+    @ObservedObject var searchState: NoteSearchState
+    let onQueryChange: (String) -> Void
+    let onSelectResult: (NoteSearchResult) -> Void
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             Rectangle()
                 .fill(.ultraThinMaterial)
                 .ignoresSafeArea()
@@ -144,9 +241,96 @@ private struct NoteEditorView: View {
                 )
             )
             .padding(EdgeInsets(top: 4, leading: 22, bottom: 24, trailing: 22))
+
+            if searchState.isPresented {
+                SearchOverlayView(
+                    query: Binding(
+                        get: { searchState.query },
+                        set: { searchState.query = $0 }
+                    ),
+                    results: searchState.results,
+                    selectedIndex: searchState.selectedIndex,
+                    onSelect: onSelectResult
+                )
+                .padding(.top, 8)
+                .padding(.horizontal, 14)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(2)
+            }
         }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(.clear)
+        .onChange(of: searchState.query) { _, newValue in
+            onQueryChange(newValue)
+        }
+        .animation(.easeOut(duration: 0.14), value: searchState.isPresented)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.clear)
+    }
+}
+
+private struct SearchOverlayView: View {
+    @Binding var query: String
+    let results: [NoteSearchResult]
+    let selectedIndex: Int
+    let onSelect: (NoteSearchResult) -> Void
+    @FocusState private var searchFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Search notes...", text: $query)
+                .textFieldStyle(.plain)
+                .focused($searchFocused)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(.black.opacity(0.22))
+                )
+
+            ScrollView {
+                VStack(spacing: 4) {
+                    ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
+                        Button {
+                            onSelect(result)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(result.title)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .lineLimit(1)
+                                if !result.snippet.isEmpty {
+                                    Text(result.snippet)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .fill(index == selectedIndex ? .white.opacity(0.05) : .clear)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxHeight: 220)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.thinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+                )
+        )
+        .onAppear {
+            DispatchQueue.main.async {
+                searchFocused = true
+            }
+        }
     }
 }
 

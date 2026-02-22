@@ -1,5 +1,13 @@
 import Foundation
 
+struct NoteSearchResult: Identifiable {
+    let id: URL
+    let fileURL: URL
+    let title: String
+    let snippet: String
+    let modifiedAt: Date
+}
+
 final class NotesStore: ObservableObject {
     @Published var text: String = "" {
         didSet {
@@ -58,6 +66,76 @@ final class NotesStore: ObservableObject {
         } catch {
             print("Failed to save notes: \(error)")
         }
+    }
+
+    func searchNotes(query: String) -> [NoteSearchResult] {
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
+        guard let urls = try? fileManager.contentsOfDirectory(
+            at: notesDirectoryURL,
+            includingPropertiesForKeys: keys
+        ) else {
+            return []
+        }
+
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let noteFiles = urls.filter { $0.pathExtension == "txt" && $0.lastPathComponent != "note.txt" }
+
+        var results: [NoteSearchResult] = []
+        for fileURL in noteFiles {
+            guard let data = try? Data(contentsOf: fileURL),
+                  let contents = String(data: data, encoding: .utf8) else {
+                continue
+            }
+
+            let lines = contents.components(separatedBy: .newlines)
+            let modifiedAt = (try? fileURL.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
+
+            if normalizedQuery.isEmpty {
+                let firstLine = lines.first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? "Untitled"
+                results.append(
+                    NoteSearchResult(
+                        id: fileURL,
+                        fileURL: fileURL,
+                        title: firstLine,
+                        snippet: "",
+                        modifiedAt: modifiedAt
+                    )
+                )
+                continue
+            }
+
+            guard let matchLine = lines.first(where: { $0.localizedCaseInsensitiveContains(normalizedQuery) }) else {
+                continue
+            }
+
+            let title = lines.first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? fileURL.deletingPathExtension().lastPathComponent
+            results.append(
+                NoteSearchResult(
+                    id: fileURL,
+                    fileURL: fileURL,
+                    title: title,
+                    snippet: matchLine,
+                    modifiedAt: modifiedAt
+                )
+            )
+        }
+
+        return results.sorted(by: { $0.modifiedAt > $1.modifiedAt })
+    }
+
+    func openNote(at fileURL: URL) {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return
+        }
+
+        currentNoteURL = fileURL
+        guard let data = try? Data(contentsOf: fileURL),
+              let saved = String(data: data, encoding: .utf8) else {
+            text = ""
+            return
+        }
+
+        text = saved
     }
 
     private func latestNoteFileURL() -> URL? {
