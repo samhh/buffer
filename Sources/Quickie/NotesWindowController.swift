@@ -5,6 +5,7 @@ import SwiftUI
 final class NotesWindowController: NSObject, NSWindowDelegate {
     private let store: NotesStore
     private let searchState = NoteSearchState()
+    private let editorState = EditorFocusState()
     private let window: NSWindow
     private var keyMonitor: Any?
     private var mouseMoveMonitor: Any?
@@ -15,6 +16,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         let contentView = NoteEditorView(
             store: store,
             searchState: searchState,
+            editorState: editorState,
             onQueryChange: { _ in },
             onSelectResult: { _ in }
         )
@@ -32,6 +34,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         let rootView = NoteEditorView(
             store: store,
             searchState: searchState,
+            editorState: editorState,
             onQueryChange: { [weak self] query in
                 self?.updateSearch(query: query)
             },
@@ -69,7 +72,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let isCommandN = event.keyCode == 45 && modifiers.contains(.command)
             if isCommandN {
-                self.store.createNewNote()
+                self.createNewNoteAndShow()
                 return nil
             }
 
@@ -123,6 +126,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             window.makeKeyAndOrderFront(nil)
             updateWindowControlsVisibility()
         }
+        requestEditorFocus()
     }
 
     func showSearch() {
@@ -194,6 +198,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     private func openSearchResult(_ result: NoteSearchResult) {
         store.openNote(at: result.fileURL)
         hideSearch()
+        requestEditorFocus()
     }
 
     private func updateSearch(query: String) {
@@ -216,6 +221,10 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             window.standardWindowButton(button)?.isHidden = !visible
         }
     }
+
+    private func requestEditorFocus() {
+        editorState.focusToken += 1
+    }
 }
 
 @MainActor
@@ -226,9 +235,15 @@ private final class NoteSearchState: ObservableObject {
     @Published var selectedIndex = 0
 }
 
+@MainActor
+private final class EditorFocusState: ObservableObject {
+    @Published var focusToken: Int = 0
+}
+
 private struct NoteEditorView: View {
     @ObservedObject var store: NotesStore
     @ObservedObject var searchState: NoteSearchState
+    @ObservedObject var editorState: EditorFocusState
     let onQueryChange: (String) -> Void
     let onSelectResult: (NoteSearchResult) -> Void
 
@@ -244,7 +259,8 @@ private struct NoteEditorView: View {
                 text: Binding(
                     get: { store.text },
                     set: { store.text = $0 }
-                )
+                ),
+                focusToken: editorState.focusToken
             )
             .padding(EdgeInsets(top: 4, leading: 22, bottom: 24, trailing: 22))
 
@@ -388,6 +404,7 @@ private struct DottedPaperOverlay: View {
 
 private struct PlainTextEditor: NSViewRepresentable {
     @Binding var text: String
+    let focusToken: Int
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
@@ -428,10 +445,18 @@ private struct PlainTextEditor: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
         }
+
+        if context.coordinator.lastFocusToken != focusToken {
+            context.coordinator.lastFocusToken = focusToken
+            DispatchQueue.main.async {
+                textView.window?.makeFirstResponder(textView)
+            }
+        }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
+        var lastFocusToken: Int = -1
 
         init(text: Binding<String>) {
             _text = text
