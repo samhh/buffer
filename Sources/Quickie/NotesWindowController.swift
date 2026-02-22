@@ -297,10 +297,10 @@ private struct SearchOverlayView: View {
                                     .font(.system(size: 13, weight: .semibold))
                                     .lineLimit(1)
                                 if !result.snippet.isEmpty {
-                                    Text(result.snippet)
+                                    Text(highlightedSnippet(line: result.snippet, query: query))
                                         .font(.system(size: 12))
                                         .foregroundStyle(.secondary)
-                                        .lineLimit(1)
+                                        .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -331,6 +331,29 @@ private struct SearchOverlayView: View {
                 searchFocused = true
             }
         }
+    }
+
+    private func highlightedSnippet(line: String, query: String) -> AttributedString {
+        var attributed = AttributedString(line)
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else {
+            return attributed
+        }
+
+        let lowerLine = line.lowercased()
+        let lowerQuery = trimmedQuery.lowercased()
+        var searchStart = lowerLine.startIndex
+
+        while searchStart < lowerLine.endIndex,
+              let foundRange = lowerLine.range(of: lowerQuery, options: [], range: searchStart..<lowerLine.endIndex) {
+            if let lower = AttributedString.Index(foundRange.lowerBound, within: attributed),
+               let upper = AttributedString.Index(foundRange.upperBound, within: attributed) {
+                attributed[lower..<upper].foregroundColor = .primary
+                attributed[lower..<upper].backgroundColor = .init(Color.accentColor.opacity(0.3))
+            }
+            searchStart = foundRange.upperBound
+        }
+        return attributed
     }
 }
 
