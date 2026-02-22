@@ -36,7 +36,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         window.acceptsMouseMovedEvents = true
         window.delegate = self
         window.contentView = hostingView
-        window.setFrameAutosaveName("AntinoteLiteMainWindow")
+        window.setFrameAutosaveName("QuickieMainWindow")
         setWindowControlsVisible(false)
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

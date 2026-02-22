@@ -20,7 +20,7 @@ final class StatusBarController: NSObject {
         self.onOpenSettings = onOpenSettings
         self.onQuit = onQuit
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        menu = NSMenu(title: "AntinoteLite")
+        menu = NSMenu(title: "Quickie")
         super.init()
 
         if let button = statusItem.button {
