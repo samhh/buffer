@@ -39,9 +39,9 @@ final class NotesStore: ObservableObject {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
         }
+        deleteCurrentNoteFileIfEmpty()
         currentNoteURL = notesDirectoryURL.appendingPathComponent("\(UUID().uuidString).txt", isDirectory: false)
         text = ""
-        save()
     }
 
     private func load() {
@@ -124,6 +124,12 @@ final class NotesStore: ObservableObject {
     }
 
     func openNote(at fileURL: URL) {
+        if fileURL == currentNoteURL {
+            return
+        }
+
+        deleteCurrentNoteFileIfEmpty()
+
         guard fileManager.fileExists(atPath: fileURL.path) else {
             return
         }
@@ -136,6 +142,23 @@ final class NotesStore: ObservableObject {
         }
 
         text = saved
+    }
+
+    private func deleteCurrentNoteFileIfEmpty() {
+        let isEmpty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard isEmpty else {
+            return
+        }
+
+        guard fileManager.fileExists(atPath: currentNoteURL.path) else {
+            return
+        }
+
+        do {
+            try fileManager.removeItem(at: currentNoteURL)
+        } catch {
+            print("Failed to delete empty note: \(error)")
+        }
     }
 
     private func latestNoteFileURL() -> URL? {
