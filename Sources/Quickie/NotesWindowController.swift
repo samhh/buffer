@@ -185,13 +185,13 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     private func handleSearchKey(_ event: NSEvent) -> NSEvent? {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if event.keyCode == 3, modifiers.contains(.command) {
-            hideSearch()
+            hideSearch(refocusEditor: true)
             return nil
         }
 
         switch event.keyCode {
         case 53: // Escape
-            hideSearch()
+            hideSearch(refocusEditor: true)
             return nil
         case 125: // Down
             guard !searchState.results.isEmpty else { return nil }
@@ -211,10 +211,17 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     }
 
     private func hideSearch() {
+        hideSearch(refocusEditor: false)
+    }
+
+    private func hideSearch(refocusEditor: Bool) {
         searchState.isPresented = false
         searchState.query = ""
         searchState.results = []
         searchState.selectedIndex = 0
+        if refocusEditor {
+            requestEditorFocus()
+        }
     }
 
     private func openSearchResult(_ result: NoteSearchResult) {
