@@ -3,12 +3,14 @@ import SwiftUI
 
 @MainActor
 final class NotesWindowController: NSObject, NSWindowDelegate {
+    private let store: NotesStore
     private let window: NSWindow
     private var keyMonitor: Any?
     private var mouseMoveMonitor: Any?
     private var didResignActiveObserver: NSObjectProtocol?
 
     init(store: NotesStore) {
+        self.store = store
         let contentView = NoteEditorView(store: store)
         let hostingView = NSHostingView(rootView: contentView)
 
@@ -39,6 +41,14 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
+            guard self.window.isVisible else { return event }
+
+            let isCommandN = event.keyCode == 45 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
+            if isCommandN {
+                self.store.createNewNote()
+                return nil
+            }
+
             if event.keyCode == 53, self.window.isVisible {
                 self.window.orderOut(nil)
                 return nil
