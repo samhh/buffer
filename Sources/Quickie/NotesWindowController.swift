@@ -156,6 +156,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
         }
+        searchState.highlightColors = NoteSearchState.mochaAccentColors.shuffled()
         searchState.isPresented = true
         searchState.query = ""
         searchState.selectedIndex = 0
@@ -262,6 +263,24 @@ private final class NoteSearchState: ObservableObject {
     @Published var query = ""
     @Published var results: [NoteSearchResult] = []
     @Published var selectedIndex = 0
+    @Published var highlightColors: [Color] = mochaAccentColors
+
+    static let mochaAccentColors: [Color] = [
+        Color(hex: 0xF5E0DC), // Rosewater
+        Color(hex: 0xF2CDCD), // Flamingo
+        Color(hex: 0xF5C2E7), // Pink
+        Color(hex: 0xCBA6F7), // Mauve
+        Color(hex: 0xF38BA8), // Red
+        Color(hex: 0xEBA0AC), // Maroon
+        Color(hex: 0xFAB387), // Peach
+        Color(hex: 0xF9E2AF), // Yellow
+        Color(hex: 0xA6E3A1), // Green
+        Color(hex: 0x94E2D5), // Teal
+        Color(hex: 0x89DCEB), // Sky
+        Color(hex: 0x74C7EC), // Sapphire
+        Color(hex: 0x89B4FA), // Blue
+        Color(hex: 0xB4BEFE), // Lavender
+    ]
 }
 
 @MainActor
@@ -303,6 +322,7 @@ private struct NoteEditorView: View {
                     ),
                     results: searchState.results,
                     selectedIndex: searchState.selectedIndex,
+                    highlightColors: searchState.highlightColors,
                     onSelect: onSelectResult
                 )
                 .padding(.top, 8)
@@ -322,6 +342,7 @@ private struct SearchOverlayView: View {
     @Binding var query: String
     let results: [NoteSearchResult]
     let selectedIndex: Int
+    let highlightColors: [Color]
     let onSelect: (NoteSearchResult) -> Void
     @FocusState private var searchFocused: Bool
 
@@ -348,7 +369,7 @@ private struct SearchOverlayView: View {
                                     .font(.system(size: 13, weight: .semibold))
                                     .lineLimit(1)
                                 if !result.snippet.isEmpty {
-                                    Text(highlightedSnippet(line: result.snippet, query: query))
+                                    Text(highlightedSnippet(line: result.snippet, query: query, colors: highlightColors))
                                         .font(.system(size: 12))
                                         .foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
@@ -384,7 +405,7 @@ private struct SearchOverlayView: View {
         }
     }
 
-    private func highlightedSnippet(line: String, query: String) -> AttributedString {
+    private func highlightedSnippet(line: String, query: String, colors: [Color]) -> AttributedString {
         var attributed = AttributedString(line)
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else {
@@ -394,17 +415,29 @@ private struct SearchOverlayView: View {
         let lowerLine = line.lowercased()
         let lowerQuery = trimmedQuery.lowercased()
         var searchStart = lowerLine.startIndex
+        var matchIndex = 0
 
         while searchStart < lowerLine.endIndex,
               let foundRange = lowerLine.range(of: lowerQuery, options: [], range: searchStart..<lowerLine.endIndex) {
             if let lower = AttributedString.Index(foundRange.lowerBound, within: attributed),
                let upper = AttributedString.Index(foundRange.upperBound, within: attributed) {
+                let color = colors[matchIndex % colors.count]
                 attributed[lower..<upper].foregroundColor = .primary
-                attributed[lower..<upper].backgroundColor = .init(Color.accentColor.opacity(0.3))
+                attributed[lower..<upper].backgroundColor = .init(color.opacity(0.38))
             }
             searchStart = foundRange.upperBound
+            matchIndex += 1
         }
         return attributed
+    }
+}
+
+private extension Color {
+    init(hex: UInt32) {
+        let red = Double((hex >> 16) & 0xFF) / 255.0
+        let green = Double((hex >> 8) & 0xFF) / 255.0
+        let blue = Double(hex & 0xFF) / 255.0
+        self.init(.sRGB, red: red, green: green, blue: blue, opacity: 1)
     }
 }
 
