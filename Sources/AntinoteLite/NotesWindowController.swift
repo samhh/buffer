@@ -107,7 +107,7 @@ private struct NoteEditorView: View {
                     set: { store.text = $0 }
                 )
             )
-            .padding(EdgeInsets(top: 22, leading: 22, bottom: 24, trailing: 22))
+            .padding(EdgeInsets(top: 4, leading: 22, bottom: 24, trailing: 22))
         }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.clear)
