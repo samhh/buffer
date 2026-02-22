@@ -6,6 +6,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     private let store: NotesStore
     private let searchState = NoteSearchState()
     private let editorState = EditorFocusState()
+    private var pendingDeletedNote: DeletedNote?
     private let window: NSWindow
     private var keyMonitor: Any?
     private var mouseMoveMonitor: Any?
@@ -17,6 +18,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             store: store,
             searchState: searchState,
             editorState: editorState,
+            onUserEdit: {},
             onQueryChange: { _ in },
             onSelectResult: { _ in }
         )
@@ -35,6 +37,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             store: store,
             searchState: searchState,
             editorState: editorState,
+            onUserEdit: { [weak self] in
+                self?.pendingDeletedNote = nil
+            },
             onQueryChange: { [weak self] query in
                 self?.updateSearch(query: query)
             },
@@ -73,6 +78,23 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             let isCommandN = event.keyCode == 45 && modifiers.contains(.command)
             if isCommandN {
                 self.createNewNoteAndShow()
+                return nil
+            }
+
+            let isCommandD = event.keyCode == 2 && modifiers.contains(.command)
+            if isCommandD {
+                if let deleted = self.store.deleteCurrentNote() {
+                    self.pendingDeletedNote = deleted
+                    self.requestEditorFocus()
+                }
+                return nil
+            }
+
+            let isCommandZ = event.keyCode == 6 && modifiers.contains(.command)
+            if isCommandZ, let deleted = self.pendingDeletedNote {
+                self.store.restoreDeletedNote(deleted)
+                self.pendingDeletedNote = nil
+                self.requestEditorFocus()
                 return nil
             }
 
@@ -244,6 +266,7 @@ private struct NoteEditorView: View {
     @ObservedObject var store: NotesStore
     @ObservedObject var searchState: NoteSearchState
     @ObservedObject var editorState: EditorFocusState
+    let onUserEdit: () -> Void
     let onQueryChange: (String) -> Void
     let onSelectResult: (NoteSearchResult) -> Void
 
@@ -260,7 +283,8 @@ private struct NoteEditorView: View {
                     get: { store.text },
                     set: { store.text = $0 }
                 ),
-                focusToken: editorState.focusToken
+                focusToken: editorState.focusToken,
+                onUserEdit: onUserEdit
             )
             .padding(EdgeInsets(top: 4, leading: 22, bottom: 24, trailing: 22))
 
@@ -405,9 +429,10 @@ private struct DottedPaperOverlay: View {
 private struct PlainTextEditor: NSViewRepresentable {
     @Binding var text: String
     let focusToken: Int
+    let onUserEdit: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(text: $text, onUserEdit: onUserEdit)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -456,10 +481,12 @@ private struct PlainTextEditor: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
+        let onUserEdit: () -> Void
         var lastFocusToken: Int = -1
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, onUserEdit: @escaping () -> Void) {
             _text = text
+            self.onUserEdit = onUserEdit
         }
 
         func textDidChange(_ notification: Notification) {
@@ -467,6 +494,7 @@ private struct PlainTextEditor: NSViewRepresentable {
                 return
             }
             text = textView.string
+            onUserEdit()
         }
     }
 }

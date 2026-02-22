@@ -8,6 +8,11 @@ struct NoteSearchResult: Identifiable {
     let modifiedAt: Date
 }
 
+struct DeletedNote {
+    let fileURL: URL
+    let contents: String
+}
+
 final class NotesStore: ObservableObject {
     @Published var text: String = "" {
         didSet {
@@ -142,6 +147,52 @@ final class NotesStore: ObservableObject {
         }
 
         text = saved
+    }
+
+    @discardableResult
+    func deleteCurrentNote() -> DeletedNote? {
+        let existingURL = currentNoteURL
+        let existingContents = text
+        let existsOnDisk = fileManager.fileExists(atPath: existingURL.path)
+        let hasMeaningfulContent = !existingContents.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        guard existsOnDisk || hasMeaningfulContent else {
+            return nil
+        }
+
+        if existsOnDisk {
+            do {
+                try fileManager.removeItem(at: existingURL)
+            } catch {
+                print("Failed to delete note: \(error)")
+                return nil
+            }
+        }
+
+        if let latestURL = latestNoteFileURL() {
+            currentNoteURL = latestURL
+            if let data = try? Data(contentsOf: latestURL),
+               let saved = String(data: data, encoding: .utf8) {
+                text = saved
+            } else {
+                text = ""
+            }
+        } else {
+            currentNoteURL = notesDirectoryURL.appendingPathComponent("\(UUID().uuidString).txt", isDirectory: false)
+            text = ""
+        }
+
+        return DeletedNote(fileURL: existingURL, contents: existingContents)
+    }
+
+    func restoreDeletedNote(_ deleted: DeletedNote) {
+        do {
+            try deleted.contents.data(using: .utf8)?.write(to: deleted.fileURL, options: .atomic)
+            currentNoteURL = deleted.fileURL
+            text = deleted.contents
+        } catch {
+            print("Failed to restore deleted note: \(error)")
+        }
     }
 
     private func deleteCurrentNoteFileIfEmpty() {
