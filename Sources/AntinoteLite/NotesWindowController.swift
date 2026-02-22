@@ -146,6 +146,7 @@ private struct PlainTextEditor: NSViewRepresentable {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticDataDetectionEnabled = false
+        textView.allowsUndo = true
         textView.font = .systemFont(ofSize: 14)
         textView.drawsBackground = false
         textView.textColor = .labelColor

@@ -28,6 +28,9 @@ final class NotesStore: ObservableObject {
     }
 
     func createNewNote() {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
         currentNoteURL = notesDirectoryURL.appendingPathComponent("\(UUID().uuidString).txt", isDirectory: false)
         text = ""
         save()
