@@ -36,7 +36,7 @@ final class StatusBarController: NSObject {
         menu.addItem(NSMenuItem(title: "Toggle Notes", action: #selector(toggleFromMenu), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettingsFromMenu), keyEquivalent: ","))
         menu.addItem(.separator())
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit Quickie", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.keyEquivalentModifierMask = [.command]
         menu.addItem(quitItem)
 
