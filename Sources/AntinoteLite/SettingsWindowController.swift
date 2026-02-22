@@ -41,17 +41,22 @@ private struct SettingsView: View {
     @ObservedObject var preferences: PreferencesStore
 
     var body: some View {
-        Form {
-            Section("Toggle Hotkey") {
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Toggle Hotkey")
+                    .font(.headline)
+
                 ShortcutRecorderField(preferences: preferences)
-                Text("Click field, then press shortcut")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
-            Section("Startup") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Startup")
+                    .font(.headline)
+
                 Toggle("Launch at login", isOn: $preferences.launchAtLoginEnabled)
             }
+
+            Spacer(minLength: 0)
         }
         .padding(16)
         .frame(width: 380, height: 220)
@@ -102,6 +107,11 @@ private struct ShortcutRecorderField: View {
     private func startRecording() {
         isRecording = true
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 {
+                stopRecording()
+                return nil
+            }
+
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let carbonModifiers = PreferencesStore.carbonModifiers(from: modifiers)
             guard carbonModifiers != 0 else {
