@@ -862,14 +862,14 @@ private struct SearchOverlayView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
                         .background(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
                                 .fill(isActive ? AnyShapeStyle(.thinMaterial) : AnyShapeStyle(.clear))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
                                         .fill(isActive ? .black.opacity(0.07) : .clear)
                                 )
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
                                         .strokeBorder(isActive ? .white.opacity(0.30) : .clear, lineWidth: 1)
                                 )
                         )
