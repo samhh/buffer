@@ -1,5 +1,7 @@
 # Buffer
 
+![Static Badge](https://img.shields.io/badge/100%25-vibecoded?label=vibecoded&color=purple)
+
 Buffer is a floating notes window for unimportant, semi-ephemeral information.
 
 It optimises around how I used to organically use unsaved editor buffers: capture short-term todos and notes, and avoid heavy structure.
