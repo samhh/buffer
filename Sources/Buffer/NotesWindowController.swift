@@ -133,10 +133,21 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
                 return nil
             }
 
-            let isCommandZ = event.keyCode == 6 && modifiers.contains(.command)
-            if isCommandZ {
+            let isCommandZ = event.keyCode == 6 && modifiers.contains(.command) && !modifiers.contains(.shift)
+            if isCommandZ, self.store.deletedNoteToast != nil {
                 self.undoLastDeletedNote()
                 self.requestEditorFocus()
+                return nil
+            }
+            if isCommandZ {
+                if let textView = self.editorBridge.textView {
+                    textView.undoManager?.undo()
+                    let selection = textView.selectedRange()
+                    if selection.length > 0 {
+                        let clamped = min(selection.location, (textView.string as NSString).length)
+                        textView.setSelectedRange(NSRange(location: clamped, length: 0))
+                    }
+                }
                 return nil
             }
 
@@ -992,8 +1003,17 @@ private struct PlainTextEditor: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let textView = LineDeleteOnCutTextView()
+        let textStorage = NSTextStorage()
+        let layoutManager = ListBulletLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = true
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = LineDeleteOnCutTextView(frame: .zero, textContainer: textContainer)
         textView.delegate = context.coordinator
+        textView.isEditable = true
+        textView.isSelectable = true
         textView.isRichText = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -1002,11 +1022,15 @@ private struct PlainTextEditor: NSViewRepresentable {
         textView.isAutomaticDataDetectionEnabled = false
         textView.allowsUndo = true
         textView.usesFindPanel = true
-        textView.font = .systemFont(ofSize: 14)
+        textView.font = NSFont.systemFont(ofSize: 14)
         textView.drawsBackground = false
-        textView.textColor = .labelColor
-        textView.insertionPointColor = .labelColor
+        textView.textColor = NSColor.labelColor
+        textView.insertionPointColor = NSColor.labelColor
         textView.textContainerInset = NSSize(width: 0, height: 0)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.autoresizingMask = NSView.AutoresizingMask.width
         textView.string = text
         editorBridge.textView = textView
 
@@ -1053,6 +1077,9 @@ private struct PlainTextEditor: NSViewRepresentable {
                 return
             }
             text = textView.string
+            let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
+            textView.layoutManager?.invalidateDisplay(forCharacterRange: fullRange)
+            textView.setNeedsDisplay(textView.bounds)
             onUserEdit()
         }
     }
@@ -1135,9 +1162,54 @@ private final class LineDeleteOnCutTextView: NSTextView {
         }
 
         textStorage?.replaceCharacters(in: edit.replacementRange, with: edit.replacement)
-        didChangeText()
         setSelectedRange(edit.selection)
+        didChangeText()
+        let fullRange = NSRange(location: 0, length: (string as NSString).length)
+        layoutManager?.invalidateDisplay(forCharacterRange: fullRange)
+        setNeedsDisplay(bounds)
         scrollRangeToVisible(edit.selection)
         return true
     }
+}
+
+private final class ListBulletLayoutManager: NSLayoutManager {
+    private let indentWidth = ("  " as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
+    private let blockPalette: [NSColor] = [
+        NSColor.systemBlue.withAlphaComponent(0.09),
+        NSColor.systemGreen.withAlphaComponent(0.09),
+        NSColor.systemOrange.withAlphaComponent(0.09),
+        NSColor.systemPink.withAlphaComponent(0.09),
+        NSColor.systemTeal.withAlphaComponent(0.09),
+    ]
+
+    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+        drawRootGroupBackgrounds(forGlyphRange: glyphsToShow, at: origin)
+    }
+
+    private func drawRootGroupBackgrounds(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let textStorage else { return }
+        let text = textStorage.string as NSString
+        guard text.length > 0 else { return }
+
+        let lines = RootGroupStyling.parseLines(in: text)
+        guard !lines.isEmpty else { return }
+
+        let linesByIndex = Dictionary(uniqueKeysWithValues: lines.map { ($0.lineIndex, $0) })
+        let blocks = RootGroupStyling.rootGroups(from: lines, paletteCount: blockPalette.count)
+        for block in blocks {
+            blockPalette[block.colorIndex].setFill()
+            for lineIndex in block.lineIndices {
+                guard let line = linesByIndex[lineIndex] else { continue }
+                let glyphIndex = glyphIndexForCharacter(at: line.contentRange.location)
+                if glyphIndex == NSNotFound { continue }
+                let lineRect = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+                let x = origin.x + lineRect.minX + (CGFloat(line.depth) * indentWidth) + 2
+                let width = max(18, lineRect.width - (CGFloat(line.depth) * indentWidth) - 4)
+                let rect = NSRect(x: x, y: origin.y + lineRect.minY + 1, width: width, height: lineRect.height - 2)
+                NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
+            }
+        }
+    }
+
 }

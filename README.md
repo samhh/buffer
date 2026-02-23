@@ -4,7 +4,7 @@
 
 Buffer is a floating notes window for unimportant, semi-ephemeral information.
 
-It optimises for how I used to organically use unsaved editor buffers: capture short-term todos and notes, avoid heavy structure, and organise around indentation. The underlying interface is essentially plaintext with Markdown lists.
+It optimises for how I used to organically use unsaved editor buffers: capture short-term todos and notes, avoid heavy structure, and organise around indentation.
 
 If a note becomes important or warrants structure, extract it to something like Apple Notes or Linear.
 
@@ -28,4 +28,4 @@ Buffer will start backgrounded in the menu bar. Notes are stored in plaintext at
 
 ## Development
 
-Everything in this repo except for this README was vibecoded with Codex (5.3 medium). It's most heavily inspired by [Antinote](https://antinote.io) and [Raycast Notes](https://www.raycast.com/core-features/notes).
+Everything except for this README was vibecoded with Codex (5.3 medium). It's most heavily inspired by [Antinote](https://antinote.io) and [Raycast Notes](https://www.raycast.com/core-features/notes).

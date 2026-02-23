@@ -16,7 +16,6 @@ struct SmartListEdit {
 
 enum SmartListEditing {
     static let indentUnit = "  "
-    static let listToken = "- "
 
     static func makeEdit(text: String, selection: NSRange, action: SmartListAction) -> SmartListEdit {
         let nsText = text as NSString
@@ -55,13 +54,12 @@ enum SmartListEditing {
             rawLine = nsText.substring(with: lineRange).trimmingCharacters(in: .newlines)
         }
 
-        let leadingSpaces = rawLine.prefix { $0 == " " }.count
-        let indent = String(repeating: " ", count: (leadingSpaces / 2) * 2)
-        let body = String(rawLine.dropFirst(leadingSpaces))
-        let isListLine = body == "-" || body.hasPrefix(listToken)
-        let bodyContent = body == "-" ? "" : String(body.dropFirst(min(body.count, listToken.count))).trimmingCharacters(in: .whitespaces)
+        let leadingSpacesRaw = rawLine.prefix { $0 == " " }.count
+        let leadingSpaces = (leadingSpacesRaw / 2) * 2
+        let indent = String(repeating: " ", count: leadingSpaces)
+        let body = String(rawLine.dropFirst(leadingSpacesRaw))
 
-        if isListLine && bodyContent.isEmpty {
+        if body.isEmpty, leadingSpaces > 0 {
             let lineContentRange = contentRangeOfLine(in: nsText, lineRange: lineRange)
             return SmartListEdit(
                 handled: true,
@@ -71,8 +69,8 @@ enum SmartListEditing {
             )
         }
 
-        if isListLine {
-            let insertion = "\n" + indent + listToken
+        if !body.isEmpty {
+            let insertion = "\n" + indent
             return SmartListEdit(
                 handled: true,
                 replacementRange: NSRange(location: caret, length: 0),
@@ -81,16 +79,12 @@ enum SmartListEditing {
             )
         }
 
-        if rawLine.trimmingCharacters(in: .whitespaces).isEmpty {
-            return SmartListEdit(
-                handled: true,
-                replacementRange: NSRange(location: caret, length: 0),
-                replacement: "\n",
-                selection: NSRange(location: caret + 1, length: 0)
-            )
-        }
-
-        return unhandled(selection: selection)
+        return SmartListEdit(
+            handled: true,
+            replacementRange: NSRange(location: caret, length: 0),
+            replacement: "\n",
+            selection: NSRange(location: caret + 1, length: 0)
+        )
     }
 
     private static func makeBackspaceEdit(nsText: NSString, selection: NSRange) -> SmartListEdit {
@@ -102,19 +96,10 @@ enum SmartListEditing {
         let probe = max(0, min(caret, max(nsText.length - 1, 0)))
         let lineRange = nsText.lineRange(for: NSRange(location: probe, length: 0))
         let line = nsText.substring(with: lineRange).trimmingCharacters(in: .newlines)
-        let leadingSpaces = line.prefix { $0 == " " }.count
+        let leadingSpaces = normalizedIndentCount(line)
         let offsetInLine = max(0, caret - lineRange.location)
-        let body = String(line.dropFirst(leadingSpaces))
-        let listPrefixLength: Int
-        if body.hasPrefix(listToken) {
-            listPrefixLength = leadingSpaces + listToken.count
-        } else if body == "-" {
-            listPrefixLength = leadingSpaces + 1
-        } else {
-            listPrefixLength = leadingSpaces
-        }
 
-        if offsetInLine > 0, offsetInLine <= listPrefixLength {
+        if offsetInLine > 0, offsetInLine <= leadingSpaces {
             return SmartListEdit(
                 handled: true,
                 replacementRange: NSRange(location: lineRange.location, length: offsetInLine),
@@ -142,15 +127,16 @@ enum SmartListEditing {
                 return line
             }
 
-            let lineStart = target.lineStarts[index]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty {
-                if hasParentCandidate(in: nsText, before: lineStart) {
-                    return indentUnit + listToken
-                }
-                return indentUnit
+                let existingIndent = normalizedIndentCount(line)
+                return String(repeating: " ", count: existingIndent + indentUnit.count)
             }
-            return indentUnit + normalizeToMarkdownList(line)
+
+            let rawLeading = line.prefix { $0 == " " }.count
+            let body = String(line.dropFirst(rawLeading))
+            let newIndent = normalizedIndentCount(line) + indentUnit.count
+            return String(repeating: " ", count: newIndent) + body
         }.joined(separator: "\n")
 
         let delta = indentUnit.count
@@ -189,17 +175,15 @@ enum SmartListEditing {
         }
 
         let replacement: String
-        if let previous = previousLineContentRange(in: nsText, currentLineRange: lineRange) {
+        if let previous = previousLineContentRange(in: nsText, currentLineStart: lineRange.location) {
             let previousLine = nsText.substring(with: previous)
-            if let indent = listIndentIfListLine(previousLine) {
-                replacement = indent + listToken
+            if !previousLine.trimmingCharacters(in: .whitespaces).isEmpty {
+                replacement = String(repeating: " ", count: normalizedIndentCount(previousLine) + indentUnit.count)
             } else {
-                let currentIndent = String(repeating: " ", count: (rawLine.prefix { $0 == " " }.count / 2) * 2)
-                replacement = currentIndent + listToken
+                replacement = String(repeating: " ", count: normalizedIndentCount(rawLine) + indentUnit.count)
             }
         } else {
-            let currentIndent = String(repeating: " ", count: (rawLine.prefix { $0 == " " }.count / 2) * 2)
-            replacement = currentIndent + listToken
+            replacement = String(repeating: " ", count: normalizedIndentCount(rawLine) + indentUnit.count)
         }
 
         return SmartListEdit(
@@ -223,17 +207,13 @@ enum SmartListEditing {
             }
 
             guard !line.isEmpty else { return line }
-            let leading = line.prefix { $0 == " " }.count
-            let removed = min(2, leading)
+            let leading = normalizedIndentCount(line)
+            let removed = min(indentUnit.count, leading)
             if index == 0 {
                 removedFromFirst = removed
             }
             removedTotal += removed
-            let unindented = String(line.dropFirst(removed))
-            if unindented.trimmingCharacters(in: .whitespaces).isEmpty {
-                return unindented
-            }
-            return normalizeToMarkdownList(unindented)
+            return String(line.dropFirst(removed))
         }.joined(separator: "\n")
 
         let fullText = nsText.replacingCharacters(in: target.range, with: replacement) as NSString
@@ -289,31 +269,6 @@ enum SmartListEditing {
         return (targetRange, lines, lineStarts, syntheticTrailingEmptyLine)
     }
 
-    private static func normalizeToMarkdownList(_ line: String) -> String {
-        let leadingSpaces = line.prefix { $0 == " " }.count
-        let indentSpaces = (leadingSpaces / 2) * 2
-        let indent = String(repeating: " ", count: indentSpaces)
-        let body = String(line.dropFirst(leadingSpaces))
-        if body.hasPrefix(listToken) {
-            return indent + body
-        }
-        if body == "-" {
-            return indent + listToken
-        }
-        return indent + listToken + body
-    }
-
-    private static func listIndentIfListLine(_ line: String) -> String? {
-        let trimmed = line.trimmingCharacters(in: .newlines)
-        let leadingSpaces = trimmed.prefix { $0 == " " }.count
-        let body = String(trimmed.dropFirst(leadingSpaces))
-        guard body == "-" || body.hasPrefix(listToken) else {
-            return nil
-        }
-        let normalizedIndent = String(repeating: " ", count: (leadingSpaces / 2) * 2)
-        return normalizedIndent
-    }
-
     private static func contentRangeOfLine(in text: NSString, lineRange: NSRange) -> NSRange {
         var length = lineRange.length
         while length > 0 {
@@ -327,31 +282,17 @@ enum SmartListEditing {
         return NSRange(location: lineRange.location, length: length)
     }
 
-    private static func hasParentCandidate(in text: NSString, before location: Int) -> Bool {
-        guard location > 0, text.length > 0 else { return false }
-        var probe = min(location - 1, text.length - 1)
-
-        while probe >= 0 {
-            let lineRange = text.lineRange(for: NSRange(location: probe, length: 0))
-            let line = text.substring(with: lineRange).trimmingCharacters(in: .newlines)
-            if !line.trimmingCharacters(in: .whitespaces).isEmpty {
-                return true
-            }
-            if lineRange.location == 0 {
-                break
-            }
-            probe = lineRange.location - 1
-        }
-
-        return false
-    }
-
-    private static func previousLineContentRange(in text: NSString, currentLineRange: NSRange) -> NSRange? {
-        guard currentLineRange.location > 0, text.length > 0 else {
+    private static func previousLineContentRange(in text: NSString, currentLineStart: Int) -> NSRange? {
+        guard currentLineStart > 0, text.length > 0 else {
             return nil
         }
-        let probe = currentLineRange.location - 1
+        let probe = currentLineStart - 1
         let previousLineRange = text.lineRange(for: NSRange(location: probe, length: 0))
         return contentRangeOfLine(in: text, lineRange: previousLineRange)
+    }
+
+    private static func normalizedIndentCount(_ line: String) -> Int {
+        let spaces = line.prefix { $0 == " " }.count
+        return (spaces / indentUnit.count) * indentUnit.count
     }
 }
