@@ -8,7 +8,6 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     private let inNoteFindState = InNoteFindState()
     private let editorState = EditorFocusState()
     private let editorBridge = EditorBridge()
-    private var pendingDeletedNote: DeletedNote?
     private let window: NSWindow
     private var keyMonitor: Any?
     private var mouseMoveMonitor: Any?
@@ -29,7 +28,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             onCloseInNoteFind: {},
             onSelectResult: { _ in },
             onDeleteResult: { _ in },
-            onHoverSearchResultIndex: { _ in }
+            onHoverSearchResultIndex: { _ in },
+            onUndoDeletedNote: {},
+            onDismissDeletedToast: {}
         )
         let hostingView = NSHostingView(rootView: contentView)
 
@@ -49,7 +50,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             editorState: editorState,
             editorBridge: editorBridge,
             onUserEdit: { [weak self] in
-                self?.pendingDeletedNote = nil
+                self?.store.clearDeletedNoteUndo()
             },
             onQueryChange: { [weak self] query in
                 self?.updateSearch(query: query)
@@ -74,6 +75,12 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
                       let index,
                       self.searchState.results.indices.contains(index) else { return }
                 self.searchState.selectedIndex = index
+            },
+            onUndoDeletedNote: { [weak self] in
+                self?.undoLastDeletedNote()
+            },
+            onDismissDeletedToast: { [weak self] in
+                self?.store.dismissDeletedNoteToast()
             }
         )
         hostingView.rootView = rootView
@@ -98,6 +105,12 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             guard let self else { return event }
             guard self.window.isVisible else { return event }
             guard self.window.isKeyWindow || self.searchState.isPresented || self.inNoteFindState.isPresented else { return event }
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+            if event.keyCode == 51, modifiers.contains(.command), self.store.deletedNoteToast != nil {
+                self.store.dismissDeletedNoteToast()
+                return nil
+            }
 
             if self.searchState.isPresented {
                 return self.handleSearchKey(event)
@@ -107,7 +120,6 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
                 return self.handleInNoteFindKey(event)
             }
 
-            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let isCommandN = event.keyCode == 45 && modifiers.contains(.command)
             if isCommandN {
                 self.createNewNoteAndShow()
@@ -116,17 +128,14 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
             let isCommandD = event.keyCode == 2 && modifiers.contains(.command)
             if isCommandD {
-                if let deleted = self.store.deleteCurrentNote() {
-                    self.pendingDeletedNote = deleted
-                    self.requestEditorFocus()
-                }
+                _ = self.store.deleteCurrentNote()
+                self.requestEditorFocus()
                 return nil
             }
 
             let isCommandZ = event.keyCode == 6 && modifiers.contains(.command)
-            if isCommandZ, let deleted = self.pendingDeletedNote {
-                self.store.restoreDeletedNote(deleted)
-                self.pendingDeletedNote = nil
+            if isCommandZ {
+                self.undoLastDeletedNote()
                 self.requestEditorFocus()
                 return nil
             }
@@ -247,7 +256,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             return nil
         }
         if event.keyCode == 6, modifiers.contains(.command) {
-            restoreLastDeletedNoteInSearch()
+            undoLastDeletedNote()
             return nil
         }
 
@@ -349,11 +358,10 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     private func deleteSearchResult(_ result: NoteSearchResult) {
         let deletedIndex = searchState.results.firstIndex(where: { $0.id == result.id }) ?? searchState.selectedIndex
-        guard let deleted = store.deleteNote(at: result.fileURL) else {
+        guard store.deleteNote(at: result.fileURL) != nil else {
             return
         }
 
-        pendingDeletedNote = deleted
         searchState.results = store.searchNotes(query: searchState.query)
         if searchState.results.isEmpty {
             searchState.selectedIndex = 0
@@ -362,20 +370,19 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func restoreLastDeletedNoteInSearch() {
-        guard let deleted = pendingDeletedNote else {
+    private func undoLastDeletedNote() {
+        guard let restored = store.undoLastDeletedNote() else {
             return
         }
-        store.restoreDeletedNote(deleted)
-        pendingDeletedNote = nil
-
-        searchState.results = store.searchNotes(query: searchState.query)
-        if let restoredIndex = searchState.results.firstIndex(where: { $0.fileURL == deleted.fileURL }) {
-            searchState.selectedIndex = restoredIndex
-        } else if searchState.results.isEmpty {
-            searchState.selectedIndex = 0
-        } else {
-            searchState.selectedIndex = min(searchState.selectedIndex, searchState.results.count - 1)
+        if searchState.isPresented {
+            searchState.results = store.searchNotes(query: searchState.query)
+            if let restoredIndex = searchState.results.firstIndex(where: { $0.fileURL == restored.fileURL }) {
+                searchState.selectedIndex = restoredIndex
+            } else if searchState.results.isEmpty {
+                searchState.selectedIndex = 0
+            } else {
+                searchState.selectedIndex = min(searchState.selectedIndex, searchState.results.count - 1)
+            }
         }
     }
 
@@ -543,6 +550,9 @@ private struct NoteEditorView: View {
     let onSelectResult: (NoteSearchResult) -> Void
     let onDeleteResult: (NoteSearchResult) -> Void
     let onHoverSearchResultIndex: (Int?) -> Void
+    let onUndoDeletedNote: () -> Void
+    let onDismissDeletedToast: () -> Void
+    @State private var toastDismissWorkItem: DispatchWorkItem?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -602,6 +612,24 @@ private struct NoteEditorView: View {
                     .zIndex(3)
                 }
             }
+
+            if let toast = store.deletedNoteToast {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        DeletedNoteToastView(
+                            onUndo: onUndoDeletedNote,
+                            onDismiss: onDismissDeletedToast
+                        )
+                    }
+                }
+                .padding(.trailing, 14)
+                .padding(.bottom, 10)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .zIndex(4)
+                .id(toast.id)
+            }
         }
         .onChange(of: searchState.query) { _, newValue in
             onQueryChange(newValue)
@@ -609,8 +637,82 @@ private struct NoteEditorView: View {
         .onChange(of: inNoteFindState.query) { _, newValue in
             onInNoteFindQueryChange(newValue)
         }
+        .onChange(of: store.deletedNoteToast?.id) { _, newToastID in
+            toastDismissWorkItem?.cancel()
+            guard newToastID != nil else { return }
+
+            let workItem = DispatchWorkItem {
+                onDismissDeletedToast()
+            }
+            toastDismissWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: workItem)
+        }
+        .onDisappear {
+            toastDismissWorkItem?.cancel()
+        }
+        .animation(.easeOut(duration: 0.18), value: store.deletedNoteToast?.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.clear)
+    }
+}
+
+private struct DeletedNoteToastView: View {
+    let onUndo: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("Note deleted")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
+            Button(action: onUndo) {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Undo")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(.white.opacity(0.14))
+                )
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    NSCursor.pointingHand.set()
+                    DispatchQueue.main.async {
+                        NSCursor.pointingHand.set()
+                    }
+                case .ended:
+                    NSCursor.arrow.set()
+                }
+            }
+            .buttonStyle(.plain)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.thinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(.black.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(.white.opacity(0.17), lineWidth: 1)
+                )
+        )
     }
 }
 

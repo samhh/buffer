@@ -13,12 +13,20 @@ struct DeletedNote {
     let contents: String
 }
 
+struct DeletedNoteToast: Identifiable {
+    let id = UUID()
+    let deleted: DeletedNote
+}
+
 final class NotesStore: ObservableObject {
     @Published var text: String = "" {
         didSet {
             save()
         }
     }
+    @Published var deletedNoteToast: DeletedNoteToast?
+
+    private(set) var lastDeletedNote: DeletedNote?
 
     private let fileManager = FileManager.default
     private let notesDirectoryURL: URL
@@ -182,7 +190,9 @@ final class NotesStore: ObservableObject {
             text = ""
         }
 
-        return DeletedNote(fileURL: existingURL, contents: existingContents)
+        let deleted = DeletedNote(fileURL: existingURL, contents: existingContents)
+        registerDeletion(deleted)
+        return deleted
     }
 
     @discardableResult
@@ -198,7 +208,9 @@ final class NotesStore: ObservableObject {
         let contents = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
         do {
             try fileManager.removeItem(at: fileURL)
-            return DeletedNote(fileURL: fileURL, contents: contents)
+            let deleted = DeletedNote(fileURL: fileURL, contents: contents)
+            registerDeletion(deleted)
+            return deleted
         } catch {
             print("Failed to delete note: \(error)")
             return nil
@@ -213,6 +225,26 @@ final class NotesStore: ObservableObject {
         } catch {
             print("Failed to restore deleted note: \(error)")
         }
+    }
+
+    @discardableResult
+    func undoLastDeletedNote() -> DeletedNote? {
+        guard let deleted = lastDeletedNote else {
+            return nil
+        }
+        restoreDeletedNote(deleted)
+        lastDeletedNote = nil
+        deletedNoteToast = nil
+        return deleted
+    }
+
+    func dismissDeletedNoteToast() {
+        deletedNoteToast = nil
+    }
+
+    func clearDeletedNoteUndo() {
+        lastDeletedNote = nil
+        deletedNoteToast = nil
     }
 
     private func deleteCurrentNoteFileIfEmpty() {
@@ -230,6 +262,15 @@ final class NotesStore: ObservableObject {
         } catch {
             print("Failed to delete empty note: \(error)")
         }
+    }
+
+    private func registerDeletion(_ deleted: DeletedNote) {
+        let hasMeaningfulContent = !deleted.contents.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasMeaningfulContent else {
+            return
+        }
+        lastDeletedNote = deleted
+        deletedNoteToast = DeletedNoteToast(deleted: deleted)
     }
 
     private func latestNoteFileURL() -> URL? {
