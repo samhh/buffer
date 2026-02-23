@@ -63,7 +63,7 @@ final class PreferencesStore: ObservableObject {
         let defaultModifiers = UInt32(optionKey)
         hotKeyKeyCode = UInt32(defaults.integer(forKey: Keys.hotKeyCode))
         hotKeyModifiers = UInt32(defaults.integer(forKey: Keys.hotKeyModifiers))
-        launchAtLoginEnabled = defaults.object(forKey: Keys.launchAtLoginEnabled) as? Bool ?? true
+        launchAtLoginEnabled = defaults.object(forKey: Keys.launchAtLoginEnabled) as? Bool ?? false
 
         if hotKeyKeyCode == 0 && hotKeyModifiers == 0 {
             hotKeyKeyCode = defaultKeyCode
