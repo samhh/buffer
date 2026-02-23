@@ -5,7 +5,9 @@ import SwiftUI
 final class NotesWindowController: NSObject, NSWindowDelegate {
     private let store: NotesStore
     private let searchState = NoteSearchState()
+    private let inNoteFindState = InNoteFindState()
     private let editorState = EditorFocusState()
+    private let editorBridge = EditorBridge()
     private var pendingDeletedNote: DeletedNote?
     private let window: NSWindow
     private var keyMonitor: Any?
@@ -17,9 +19,13 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         let contentView = NoteEditorView(
             store: store,
             searchState: searchState,
+            inNoteFindState: inNoteFindState,
             editorState: editorState,
+            editorBridge: editorBridge,
             onUserEdit: {},
             onQueryChange: { _ in },
+            onInNoteFindQueryChange: { _ in },
+            onCloseInNoteFind: {},
             onSelectResult: { _ in }
         )
         let hostingView = NSHostingView(rootView: contentView)
@@ -36,12 +42,20 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         let rootView = NoteEditorView(
             store: store,
             searchState: searchState,
+            inNoteFindState: inNoteFindState,
             editorState: editorState,
+            editorBridge: editorBridge,
             onUserEdit: { [weak self] in
                 self?.pendingDeletedNote = nil
             },
             onQueryChange: { [weak self] query in
                 self?.updateSearch(query: query)
+            },
+            onInNoteFindQueryChange: { [weak self] query in
+                self?.updateInNoteFind(query: query)
+            },
+            onCloseInNoteFind: { [weak self] in
+                self?.hideInNoteFind(refocusEditor: true)
             },
             onSelectResult: { [weak self] result in
                 self?.openSearchResult(result)
@@ -68,10 +82,14 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             guard self.window.isVisible else { return event }
-            guard self.window.isKeyWindow || self.searchState.isPresented else { return event }
+            guard self.window.isKeyWindow || self.searchState.isPresented || self.inNoteFindState.isPresented else { return event }
 
             if self.searchState.isPresented {
                 return self.handleSearchKey(event)
+            }
+
+            if self.inNoteFindState.isPresented {
+                return self.handleInNoteFindKey(event)
             }
 
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -104,6 +122,22 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
                 return nil
             }
 
+            let isCommandF = event.keyCode == 3 && modifiers.contains(.command)
+            if isCommandF {
+                self.showInNoteFind()
+                return nil
+            }
+
+            let isCommandG = event.keyCode == 5 && modifiers.contains(.command)
+            if isCommandG {
+                if self.inNoteFindState.isPresented {
+                    self.navigateInNoteFind(forward: !modifiers.contains(.shift))
+                } else {
+                    self.showInNoteFind()
+                }
+                return nil
+            }
+
             if event.keyCode == 53 {
                 self.window.orderOut(nil)
                 return nil
@@ -131,6 +165,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     func toggleWindow() {
         if window.isVisible {
             hideSearch()
+            hideInNoteFind(refocusEditor: false)
             window.orderOut(nil)
             setWindowControlsVisible(false)
             return
@@ -165,6 +200,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         hideSearch()
+        hideInNoteFind(refocusEditor: false)
         window.orderOut(nil)
         setWindowControlsVisible(false)
     }
@@ -178,6 +214,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             }
 
             self.hideSearch()
+            self.hideInNoteFind(refocusEditor: false)
             self.window.orderOut(nil)
             self.setWindowControlsVisible(false)
         }
@@ -211,6 +248,29 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    private func handleInNoteFindKey(_ event: NSEvent) -> NSEvent? {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.keyCode == 3, modifiers.contains(.command) {
+            hideInNoteFind(refocusEditor: true)
+            return nil
+        }
+        if event.keyCode == 5, modifiers.contains(.command) {
+            navigateInNoteFind(forward: !modifiers.contains(.shift))
+            return nil
+        }
+
+        switch event.keyCode {
+        case 53: // Escape
+            hideInNoteFind(refocusEditor: true)
+            return nil
+        case 36, 76: // Return
+            navigateInNoteFind(forward: !modifiers.contains(.shift))
+            return nil
+        default:
+            return event
+        }
+    }
+
     private func hideSearch() {
         hideSearch(refocusEditor: false)
     }
@@ -220,6 +280,31 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         searchState.query = ""
         searchState.results = []
         searchState.selectedIndex = 0
+        if refocusEditor {
+            requestEditorFocus()
+        }
+    }
+
+    private func showInNoteFind() {
+        if !window.isVisible {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        }
+
+        if inNoteFindState.isPresented {
+            hideInNoteFind(refocusEditor: true)
+            return
+        }
+
+        inNoteFindState.isPresented = true
+        updateInNoteFind(query: inNoteFindState.query)
+    }
+
+    private func hideInNoteFind(refocusEditor: Bool) {
+        inNoteFindState.isPresented = false
+        inNoteFindState.query = ""
+        inNoteFindState.matchCount = 0
+        inNoteFindState.currentMatchIndex = 0
         if refocusEditor {
             requestEditorFocus()
         }
@@ -240,6 +325,85 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         searchState.selectedIndex = min(searchState.selectedIndex, searchState.results.count - 1)
     }
 
+    private func updateInNoteFind(query: String) {
+        guard let textView = editorBridge.textView else {
+            return
+        }
+
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            inNoteFindState.matchCount = 0
+            inNoteFindState.currentMatchIndex = 0
+            return
+        }
+
+        let ranges = findRanges(in: textView.string as NSString, query: trimmed)
+        inNoteFindState.matchCount = ranges.count
+        guard !ranges.isEmpty else {
+            inNoteFindState.currentMatchIndex = 0
+            return
+        }
+
+        let selection = textView.selectedRange()
+        let index = ranges.firstIndex(where: { $0.location >= selection.location }) ?? 0
+        // Keep focus in the inline find field while typing.
+        textView.setSelectedRange(ranges[index])
+        textView.scrollRangeToVisible(ranges[index])
+        inNoteFindState.currentMatchIndex = index + 1
+    }
+
+    private func navigateInNoteFind(forward: Bool) {
+        guard let textView = editorBridge.textView else { return }
+        let trimmed = inNoteFindState.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let ranges = findRanges(in: textView.string as NSString, query: trimmed)
+        guard !ranges.isEmpty else { return }
+
+        let current = textView.selectedRange()
+        let currentIndex = ranges.firstIndex(where: { NSEqualRanges($0, current) })
+        let targetIndex: Int
+        if let currentIndex {
+            if forward {
+                targetIndex = (currentIndex + 1) % ranges.count
+            } else {
+                targetIndex = (currentIndex - 1 + ranges.count) % ranges.count
+            }
+        } else if forward {
+            targetIndex = ranges.firstIndex(where: { $0.location > current.location }) ?? 0
+        } else {
+            targetIndex = ranges.lastIndex(where: { $0.location < current.location }) ?? (ranges.count - 1)
+        }
+
+        let target = ranges[targetIndex]
+        selectInNoteFindRange(target, in: textView)
+        inNoteFindState.currentMatchIndex = targetIndex + 1
+        inNoteFindState.matchCount = ranges.count
+    }
+
+    private func selectInNoteFindRange(_ range: NSRange, in textView: NSTextView) {
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+    }
+
+    private func findRanges(in text: NSString, query: String) -> [NSRange] {
+        var ranges: [NSRange] = []
+        var searchRange = NSRange(location: 0, length: text.length)
+        while true {
+            let found = text.range(of: query, options: [.caseInsensitive], range: searchRange)
+            if found.location == NSNotFound {
+                break
+            }
+            ranges.append(found)
+            let nextLocation = found.location + max(found.length, 1)
+            if nextLocation >= text.length {
+                break
+            }
+            searchRange = NSRange(location: nextLocation, length: text.length - nextLocation)
+        }
+        return ranges
+    }
+
     private func updateWindowControlsVisibility() {
         let isHoveringWindow = window.isVisible && NSApp.isActive && window.frame.contains(NSEvent.mouseLocation)
         setWindowControlsVisible(isHoveringWindow)
@@ -255,6 +419,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     private func requestEditorFocus() {
         editorState.focusToken += 1
     }
+
 }
 
 @MainActor
@@ -284,16 +449,33 @@ private final class NoteSearchState: ObservableObject {
 }
 
 @MainActor
+private final class InNoteFindState: ObservableObject {
+    @Published var isPresented = false
+    @Published var query = ""
+    @Published var matchCount = 0
+    @Published var currentMatchIndex = 0
+}
+
+@MainActor
 private final class EditorFocusState: ObservableObject {
     @Published var focusToken: Int = 0
+}
+
+@MainActor
+private final class EditorBridge: ObservableObject {
+    weak var textView: NSTextView?
 }
 
 private struct NoteEditorView: View {
     @ObservedObject var store: NotesStore
     @ObservedObject var searchState: NoteSearchState
+    @ObservedObject var inNoteFindState: InNoteFindState
     @ObservedObject var editorState: EditorFocusState
+    @ObservedObject var editorBridge: EditorBridge
     let onUserEdit: () -> Void
     let onQueryChange: (String) -> Void
+    let onInNoteFindQueryChange: (String) -> Void
+    let onCloseInNoteFind: () -> Void
     let onSelectResult: (NoteSearchResult) -> Void
 
     var body: some View {
@@ -310,6 +492,7 @@ private struct NoteEditorView: View {
                     set: { store.text = $0 }
                 ),
                 focusToken: editorState.focusToken,
+                editorBridge: editorBridge,
                 onUserEdit: onUserEdit
             )
             .padding(EdgeInsets(top: 4, leading: 22, bottom: 24, trailing: 22))
@@ -329,12 +512,85 @@ private struct NoteEditorView: View {
                 .padding(.horizontal, 14)
                 .zIndex(2)
             }
+
+            VStack {
+                Spacer()
+                if inNoteFindState.isPresented {
+                    InNoteFindBarView(
+                        query: Binding(
+                            get: { inNoteFindState.query },
+                            set: { inNoteFindState.query = $0 }
+                        ),
+                        currentIndex: inNoteFindState.currentMatchIndex,
+                        totalCount: inNoteFindState.matchCount,
+                        onClose: onCloseInNoteFind
+                    )
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
+                    .zIndex(3)
+                }
+            }
         }
         .onChange(of: searchState.query) { _, newValue in
             onQueryChange(newValue)
         }
+        .onChange(of: inNoteFindState.query) { _, newValue in
+            onInNoteFindQueryChange(newValue)
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.clear)
+    }
+}
+
+private struct InNoteFindBarView: View {
+    @Binding var query: String
+    let currentIndex: Int
+    let totalCount: Int
+    let onClose: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Find in note", text: $query)
+                .textFieldStyle(.plain)
+                .focused($isFocused)
+            Text(matchLabel)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 36, alignment: .trailing)
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.thinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.black.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(.white.opacity(0.17), lineWidth: 1)
+                )
+        )
+        .onAppear {
+            DispatchQueue.main.async {
+                isFocused = true
+            }
+        }
+    }
+
+    private var matchLabel: String {
+        guard totalCount > 0 else { return "0" }
+        return "\(currentIndex)/\(totalCount)"
     }
 }
 
@@ -469,6 +725,7 @@ private struct DottedPaperOverlay: View {
 private struct PlainTextEditor: NSViewRepresentable {
     @Binding var text: String
     let focusToken: Int
+    @ObservedObject var editorBridge: EditorBridge
     let onUserEdit: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -485,12 +742,14 @@ private struct PlainTextEditor: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticDataDetectionEnabled = false
         textView.allowsUndo = true
+        textView.usesFindPanel = true
         textView.font = .systemFont(ofSize: 14)
         textView.drawsBackground = false
         textView.textColor = .labelColor
         textView.insertionPointColor = .labelColor
         textView.textContainerInset = NSSize(width: 0, height: 0)
         textView.string = text
+        editorBridge.textView = textView
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
@@ -506,6 +765,7 @@ private struct PlainTextEditor: NSViewRepresentable {
         guard let textView = nsView.documentView as? NSTextView else {
             return
         }
+        editorBridge.textView = textView
 
         if textView.string != text {
             textView.string = text
