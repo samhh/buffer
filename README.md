@@ -6,6 +6,8 @@ Buffer is a floating notes window for unimportant, semi-ephemeral information.
 
 It optimises around how I used to organically use unsaved editor buffers: capture short-term todos and notes, and avoid heavy structure.
 
+If a note becomes important or warrants structure, extract it to something like Apple Notes or Linear.
+
 ## Usage
 
 Clone and run:
@@ -23,10 +25,6 @@ Buffer will start backgrounded in the menu bar. Notes are stored in plaintext at
 - Delete note: `Cmd+d`
 - Note picker / global search: `Cmd+p`, `Cmd+Shift+f`
 - Settings: `Cmd+,`
-
-## Purpose
-
-Quickly take notes and list todos into Buffer. If a note becomes important or warrants structure, extract it to something like Apple Notes or Linear.
 
 ## Development
 
