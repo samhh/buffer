@@ -476,7 +476,7 @@ private struct PlainTextEditor: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let textView = NSTextView()
+        let textView = LineDeleteOnCutTextView()
         textView.delegate = context.coordinator
         textView.isRichText = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -536,5 +536,32 @@ private struct PlainTextEditor: NSViewRepresentable {
             text = textView.string
             onUserEdit()
         }
+    }
+}
+
+private final class LineDeleteOnCutTextView: NSTextView {
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(cut(_:)) {
+            return true
+        }
+        return super.validateUserInterfaceItem(item)
+    }
+
+    override func cut(_ sender: Any?) {
+        let selection = selectedRange()
+        if selection.length > 0 {
+            super.cut(sender)
+            return
+        }
+
+        let nsText = string as NSString
+        let lineRange = nsText.lineRange(for: NSRange(location: selection.location, length: 0))
+        guard shouldChangeText(in: lineRange, replacementString: "") else {
+            return
+        }
+
+        textStorage?.replaceCharacters(in: lineRange, with: "")
+        didChangeText()
+        setSelectedRange(NSRange(location: min(lineRange.location, (string as NSString).length), length: 0))
     }
 }
