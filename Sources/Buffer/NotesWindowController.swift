@@ -246,6 +246,10 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             deleteSelectedSearchResult()
             return nil
         }
+        if event.keyCode == 6, modifiers.contains(.command) {
+            restoreLastDeletedNoteInSearch()
+            return nil
+        }
 
         switch event.keyCode {
         case 53: // Escape
@@ -355,6 +359,23 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             searchState.selectedIndex = 0
         } else {
             searchState.selectedIndex = min(deletedIndex, searchState.results.count - 1)
+        }
+    }
+
+    private func restoreLastDeletedNoteInSearch() {
+        guard let deleted = pendingDeletedNote else {
+            return
+        }
+        store.restoreDeletedNote(deleted)
+        pendingDeletedNote = nil
+
+        searchState.results = store.searchNotes(query: searchState.query)
+        if let restoredIndex = searchState.results.firstIndex(where: { $0.fileURL == deleted.fileURL }) {
+            searchState.selectedIndex = restoredIndex
+        } else if searchState.results.isEmpty {
+            searchState.selectedIndex = 0
+        } else {
+            searchState.selectedIndex = min(searchState.selectedIndex, searchState.results.count - 1)
         }
     }
 
