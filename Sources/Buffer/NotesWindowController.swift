@@ -953,8 +953,12 @@ private extension Color {
 }
 
 private struct DottedPaperOverlay: View {
+    @Environment(\.colorScheme) private var colorScheme
     private let spacing: CGFloat = 18
     private let dotSize: CGFloat = 1.6
+    private var dotColor: Color {
+        colorScheme == .dark ? .white.opacity(0.09) : .black.opacity(0.10)
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -967,7 +971,7 @@ private struct DottedPaperOverlay: View {
                         let x = CGFloat(column) * spacing
                         let y = CGFloat(row) * spacing
                         let rect = CGRect(x: x - dotSize / 2, y: y - dotSize / 2, width: dotSize, height: dotSize)
-                        context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(0.09)))
+                        context.fill(Path(ellipseIn: rect), with: .color(dotColor))
                     }
                 }
             }
