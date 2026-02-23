@@ -25,6 +25,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             onUserEdit: {},
             onQueryChange: { _ in },
             onInNoteFindQueryChange: { _ in },
+            onCloseSearch: {},
             onCloseInNoteFind: {},
             onSelectResult: { _ in }
         )
@@ -53,6 +54,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             },
             onInNoteFindQueryChange: { [weak self] query in
                 self?.updateInNoteFind(query: query)
+            },
+            onCloseSearch: { [weak self] in
+                self?.hideSearch(refocusEditor: true)
             },
             onCloseInNoteFind: { [weak self] in
                 self?.hideInNoteFind(refocusEditor: true)
@@ -476,6 +480,7 @@ private struct NoteEditorView: View {
     let onUserEdit: () -> Void
     let onQueryChange: (String) -> Void
     let onInNoteFindQueryChange: (String) -> Void
+    let onCloseSearch: () -> Void
     let onCloseInNoteFind: () -> Void
     let onSelectResult: (NoteSearchResult) -> Void
 
@@ -507,6 +512,7 @@ private struct NoteEditorView: View {
                     results: searchState.results,
                     selectedIndex: searchState.selectedIndex,
                     highlightColors: searchState.highlightColors,
+                    onClose: onCloseSearch,
                     onSelect: onSelectResult
                 )
                 .padding(.top, 8)
@@ -600,20 +606,43 @@ private struct SearchOverlayView: View {
     let results: [NoteSearchResult]
     let selectedIndex: Int
     let highlightColors: [Color]
+    let onClose: () -> Void
     let onSelect: (NoteSearchResult) -> Void
     @FocusState private var searchFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("Search notes...", text: $query)
-                .textFieldStyle(.plain)
-                .focused($searchFocused)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(.black.opacity(0.22))
-                )
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search notes...", text: $query)
+                    .textFieldStyle(.plain)
+                    .focused($searchFocused)
+                Text("\(results.count)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 24, alignment: .trailing)
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.thinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(.black.opacity(0.06))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(.white.opacity(0.17), lineWidth: 1)
+                    )
+            )
 
             ScrollView {
                 VStack(spacing: 4) {
