@@ -6,7 +6,7 @@ Buffer is a floating notes window for unimportant, semi-ephemeral information.
 
 It optimises for how I used to organically use unsaved editor buffers: capture short-term todos and notes, avoid heavy structure, and organise around indentation.
 
-If a note becomes important or warrants structure, extract it to something like Apple Notes or Linear.
+If a note becomes important or warrants more structure, extract it to something like Apple Notes or Linear.
 
 ## Usage
 

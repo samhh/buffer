@@ -142,35 +142,14 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             }
             if isCommandShiftZ {
                 if let textView = self.editorBridge.textView {
-                    let preRedoCaret = textView.selectedRange().location
                     let preRedoLength = (textView.string as NSString).length
+                    let preRedoCaret = textView.selectedRange().location
                     textView.undoManager?.redo()
+                    let text = textView.string as NSString
                     let postRedoLength = (textView.string as NSString).length
                     let lengthDelta = postRedoLength - preRedoLength
-                    let selection = textView.selectedRange()
-                    if selection.length > 0 {
-                        let rangeStart = selection.location
-                        let rangeEnd = selection.location + selection.length
-                        let text = textView.string as NSString
-                        let selectionEndsWithNewline = rangeEnd > rangeStart
-                            && rangeEnd - 1 < text.length
-                            && {
-                                let ch = text.character(at: rangeEnd - 1)
-                                return ch == 10 || ch == 13
-                            }()
-                        let maxCaret = selectionEndsWithNewline ? max(rangeStart, rangeEnd - 1) : rangeEnd
-                        let correction: Int
-                        if lengthDelta < 0 {
-                            correction = -2
-                        } else if lengthDelta > 0 {
-                            correction = 2
-                        } else {
-                            correction = 0
-                        }
-                        let target = preRedoCaret + correction
-                        let collapsed = min(max(target, rangeStart), maxCaret)
-                        textView.setSelectedRange(NSRange(location: collapsed, length: 0))
-                    }
+                    let target = min(max(0, preRedoCaret + lengthDelta), text.length)
+                    textView.setSelectedRange(NSRange(location: target, length: 0))
                 }
                 return nil
             }
