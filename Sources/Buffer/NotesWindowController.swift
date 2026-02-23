@@ -559,7 +559,7 @@ private struct NoteEditorView: View {
                     onDelete: onDeleteResult,
                     onHoverResultIndex: onHoverSearchResultIndex
                 )
-                .padding(.top, 8)
+                .padding(.top, 6)
                 .padding(.horizontal, 14)
                 .zIndex(2)
             }
