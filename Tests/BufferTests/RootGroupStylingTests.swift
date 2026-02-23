@@ -26,51 +26,19 @@ final class RootGroupStylingTests: XCTestCase {
         }
     }
 
-    func testStableColorIndexIsPureForSameInputs() {
-        let rootKey = "Project Alpha"
-        let idx1 = RootGroupStyling.stableColorIndex(forRootKey: rootKey, paletteCount: 5)
-        let idx2 = RootGroupStyling.stableColorIndex(forRootKey: rootKey, paletteCount: 5)
-        XCTAssertEqual(idx1, idx2)
-    }
-
-    func testColorUnaffectedByPrecedingNonBlockContent() {
-        let withPrefix = """
-        intro
-        notes
-        bar
-          baz
+    func testColorsCycleTopToBottomByGroupOrder() {
+        let text = """
+        A
+          a1
+        B
+          b1
+        C
+          c1
+        D
+          d1
         """
-        let withoutPrefix = """
-        bar
-          baz
-        """
-
-        let linesA = RootGroupStyling.parseLines(in: withPrefix as NSString)
-        let linesB = RootGroupStyling.parseLines(in: withoutPrefix as NSString)
-        let groupsA = RootGroupStyling.rootGroups(from: linesA, paletteCount: 5)
-        let groupsB = RootGroupStyling.rootGroups(from: linesB, paletteCount: 5)
-
-        XCTAssertEqual(groupsA.count, 1)
-        XCTAssertEqual(groupsB.count, 1)
-        XCTAssertEqual(groupsA[0].colorIndex, groupsB[0].colorIndex)
-    }
-
-    func testColorDependsOnRootNotChildren() {
-        let textA = """
-        Root
-          child one
-        """
-        let textB = """
-        Root
-          totally different
-          subtree
-        """
-
-        let groupsA = RootGroupStyling.rootGroups(from: RootGroupStyling.parseLines(in: textA as NSString), paletteCount: 5)
-        let groupsB = RootGroupStyling.rootGroups(from: RootGroupStyling.parseLines(in: textB as NSString), paletteCount: 5)
-
-        XCTAssertEqual(groupsA.count, 1)
-        XCTAssertEqual(groupsB.count, 1)
-        XCTAssertEqual(groupsA[0].colorIndex, groupsB[0].colorIndex)
+        let groups = RootGroupStyling.rootGroups(from: RootGroupStyling.parseLines(in: text as NSString), paletteCount: 3)
+        XCTAssertEqual(groups.count, 4)
+        XCTAssertEqual(groups.map(\.colorIndex), [0, 1, 2, 0])
     }
 }

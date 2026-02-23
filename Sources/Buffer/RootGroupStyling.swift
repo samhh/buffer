@@ -51,14 +51,12 @@ enum RootGroupStyling {
         var currentRootLineIndex: Int?
         var lineIndicesByRoot: [Int: [Int]] = [:]
         var hasChildByRoot: [Int: Bool] = [:]
-        var rootKeyByRoot: [Int: String] = [:]
 
         for line in lines where !line.isEmpty {
             if line.depth == 0 {
                 currentRootLineIndex = line.lineIndex
                 lineIndicesByRoot[line.lineIndex] = [line.lineIndex]
                 hasChildByRoot[line.lineIndex] = false
-                rootKeyByRoot[line.lineIndex] = normalizedRootKey(line.text)
                 continue
             }
 
@@ -68,30 +66,16 @@ enum RootGroupStyling {
             }
         }
 
+        var ordinal = 0
         for line in lines where !line.isEmpty && line.depth == 0 {
             guard hasChildByRoot[line.lineIndex] == true else { continue }
-            guard let lineIndices = lineIndicesByRoot[line.lineIndex],
-                  let rootKey = rootKeyByRoot[line.lineIndex] else { continue }
-            let colorIndex = stableColorIndex(forRootKey: rootKey, paletteCount: paletteCount)
+            guard let lineIndices = lineIndicesByRoot[line.lineIndex] else { continue }
+            let colorIndex = ordinal % paletteCount
             groups.append(RootGroupStyle(lineIndices: lineIndices, colorIndex: colorIndex))
+            ordinal += 1
         }
 
         return groups
-    }
-
-    static func stableColorIndex(forRootKey rootKey: String, paletteCount: Int) -> Int {
-        guard paletteCount > 0 else { return 0 }
-        let key = rootKey
-        var hash: UInt64 = 1469598103934665603
-        for byte in key.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 1099511628211
-        }
-        return Int(hash % UInt64(paletteCount))
-    }
-
-    private static func normalizedRootKey(_ text: String) -> String {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 
     private static func contentRangeOfLine(in text: NSString, lineRange: NSRange) -> NSRange {
