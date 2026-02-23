@@ -27,7 +27,7 @@ final class NotesStore: ObservableObject {
     init() {
         let appSupportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        notesDirectoryURL = appSupportDir.appendingPathComponent("Quickie", isDirectory: true)
+        notesDirectoryURL = appSupportDir.appendingPathComponent("Buffer", isDirectory: true)
         currentNoteURL = notesDirectoryURL.appendingPathComponent("\(UUID().uuidString).txt", isDirectory: false)
 
         do {

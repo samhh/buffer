@@ -4,7 +4,7 @@ import ServiceManagement
 import SwiftUI
 
 @main
-struct QuickieApp: App {
+struct BufferApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
