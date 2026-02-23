@@ -117,7 +117,8 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             }
 
             let isCommandP = event.keyCode == 35 && modifiers.contains(.command)
-            if isCommandP {
+            let isCommandShiftF = event.keyCode == 3 && modifiers.contains(.command) && modifiers.contains(.shift)
+            if isCommandP || isCommandShiftF {
                 self.showSearch()
                 return nil
             }
