@@ -10,10 +10,16 @@ If a note becomes important or warrants more structure, extract it to something 
 
 ## Usage
 
-Clone and run:
+Run:
 
 ```console
 $ swift run Buffer
+```
+
+Install:
+
+```console
+$ scripts/make-app.sh --install
 ```
 
 Buffer will start backgrounded in the menu bar. Notes are stored in plaintext at `~/Library/Application Support/Buffer`.
