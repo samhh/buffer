@@ -1278,22 +1278,13 @@ private final class LineDeleteOnCutTextView: NSTextView {
 
 private final class ListBulletLayoutManager: NSLayoutManager {
     private let indentWidth = (SmartListEditing.indentUnit as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
-    private let blockPalette: [NSColor] = [
-        NSColor.systemBlue.withAlphaComponent(0.09),
-        NSColor.systemGreen.withAlphaComponent(0.09),
-        NSColor.systemOrange.withAlphaComponent(0.09),
-        NSColor.systemPink.withAlphaComponent(0.09),
-        NSColor.systemTeal.withAlphaComponent(0.09),
-    ]
-    private let highlightHorizontalPadding: CGFloat = 5
-    private let highlightVerticalInset: CGFloat = 2
 
-    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
-        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
-        drawRootGroupBackgrounds(forGlyphRange: glyphsToShow, at: origin)
+    override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
+        drawIndentMarkers(forGlyphRange: glyphsToShow, at: origin)
     }
 
-    private func drawRootGroupBackgrounds(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+    private func drawIndentMarkers(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         guard let textStorage else { return }
         let text = textStorage.string as NSString
         guard text.length > 0 else { return }
@@ -1301,27 +1292,43 @@ private final class ListBulletLayoutManager: NSLayoutManager {
         let lines = RootGroupStyling.parseLines(in: text)
         guard !lines.isEmpty else { return }
 
-        let linesByIndex = Dictionary(uniqueKeysWithValues: lines.map { ($0.lineIndex, $0) })
-        let blocks = RootGroupStyling.rootGroups(from: lines, paletteCount: blockPalette.count)
-        for block in blocks {
-            blockPalette[block.colorIndex].setFill()
-            for lineIndex in block.lineIndices {
-                guard let line = linesByIndex[lineIndex] else { continue }
-                let glyphIndex = glyphIndexForCharacter(at: line.contentRange.location)
-                if glyphIndex == NSNotFound { continue }
-                let lineRect = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
-                let textStartX = origin.x + lineRect.minX + (CGFloat(line.depth) * indentWidth)
-                let x = textStartX - highlightHorizontalPadding
-                let width = max(18, lineRect.width - (CGFloat(line.depth) * indentWidth) + (highlightHorizontalPadding * 2))
-                let rect = NSRect(
-                    x: x,
-                    y: origin.y + lineRect.minY + highlightVerticalInset,
-                    width: width,
-                    height: max(1, lineRect.height - (highlightVerticalInset * 2))
-                )
-                NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
+        let markerColor = NSColor(name: nil) { appearance in
+            if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+                return NSColor(srgbRed: 0.50, green: 0.50, blue: 0.54, alpha: 1)
+            }
+            return NSColor(srgbRed: 0.68, green: 0.68, blue: 0.72, alpha: 1)
+        }
+        markerColor.setStroke()
+
+        for line in lines where line.depth > 0 {
+            let glyphIndex = glyphIndexForCharacter(at: line.contentRange.location)
+            guard glyphIndex != NSNotFound else { continue }
+            if NSIntersectionRange(glyphsToShow, NSRange(location: glyphIndex, length: 1)).length == 0 {
+                continue
+            }
+            let lineRect = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+            let lineOriginX = origin.x + lineRect.minX
+            let midY = origin.y + lineRect.midY - 1
+            for level in 0..<line.depth {
+                let markerCenterX = lineOriginX + (CGFloat(level) * indentWidth) + (indentWidth * 0.5) + 3
+                drawTabMarker(at: NSPoint(x: markerCenterX, y: midY))
             }
         }
+    }
+
+    private func drawTabMarker(at point: NSPoint) {
+        let marker = NSBezierPath()
+        marker.move(to: NSPoint(x: point.x - 2.4, y: point.y - 1.8))
+        marker.line(to: NSPoint(x: point.x - 2.4, y: point.y + 1.8))
+        marker.move(to: NSPoint(x: point.x - 2.4, y: point.y))
+        marker.line(to: NSPoint(x: point.x + 2.4, y: point.y))
+        marker.line(to: NSPoint(x: point.x + 1.1, y: point.y + 1.0))
+        marker.move(to: NSPoint(x: point.x + 2.4, y: point.y))
+        marker.line(to: NSPoint(x: point.x + 1.1, y: point.y - 1.0))
+        marker.lineWidth = 1.0
+        marker.lineCapStyle = .round
+        marker.lineJoinStyle = .round
+        marker.stroke()
     }
 
 }
