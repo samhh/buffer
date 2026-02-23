@@ -1085,6 +1085,12 @@ private struct PlainTextEditor: NSViewRepresentable {
     let focusToken: Int
     @ObservedObject var editorBridge: EditorBridge
     let onUserEdit: () -> Void
+    private static let editorParagraphStyle: NSParagraphStyle = {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = 2
+        style.paragraphSpacing = 2
+        return style
+    }()
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, onUserEdit: onUserEdit)
@@ -1114,12 +1120,15 @@ private struct PlainTextEditor: NSViewRepresentable {
         textView.drawsBackground = false
         textView.textColor = NSColor.labelColor
         textView.insertionPointColor = NSColor.labelColor
-        textView.textContainerInset = NSSize(width: 0, height: 0)
+        textView.textContainerInset = NSSize(width: 16, height: 8)
+        textView.defaultParagraphStyle = Self.editorParagraphStyle
+        textView.typingAttributes[.paragraphStyle] = Self.editorParagraphStyle
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.autoresizingMask = NSView.AutoresizingMask.width
         textView.string = text
+        applyParagraphStyle(in: textView)
         editorBridge.textView = textView
 
         let scrollView = NSScrollView()
@@ -1140,6 +1149,7 @@ private struct PlainTextEditor: NSViewRepresentable {
 
         if textView.string != text {
             textView.string = text
+            applyParagraphStyle(in: textView)
         }
 
         if context.coordinator.lastFocusToken != focusToken {
@@ -1170,6 +1180,12 @@ private struct PlainTextEditor: NSViewRepresentable {
             textView.setNeedsDisplay(textView.bounds)
             onUserEdit()
         }
+    }
+
+    private func applyParagraphStyle(in textView: NSTextView) {
+        let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
+        guard fullRange.length > 0 else { return }
+        textView.textStorage?.addAttribute(.paragraphStyle, value: Self.editorParagraphStyle, range: fullRange)
     }
 }
 
@@ -1269,6 +1285,8 @@ private final class ListBulletLayoutManager: NSLayoutManager {
         NSColor.systemPink.withAlphaComponent(0.09),
         NSColor.systemTeal.withAlphaComponent(0.09),
     ]
+    private let highlightHorizontalPadding: CGFloat = 5
+    private let highlightVerticalInset: CGFloat = 2
 
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
@@ -1292,9 +1310,15 @@ private final class ListBulletLayoutManager: NSLayoutManager {
                 let glyphIndex = glyphIndexForCharacter(at: line.contentRange.location)
                 if glyphIndex == NSNotFound { continue }
                 let lineRect = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
-                let x = origin.x + lineRect.minX + (CGFloat(line.depth) * indentWidth) + 2
-                let width = max(18, lineRect.width - (CGFloat(line.depth) * indentWidth) - 4)
-                let rect = NSRect(x: x, y: origin.y + lineRect.minY + 1, width: width, height: lineRect.height - 2)
+                let textStartX = origin.x + lineRect.minX + (CGFloat(line.depth) * indentWidth)
+                let x = textStartX - highlightHorizontalPadding
+                let width = max(18, lineRect.width - (CGFloat(line.depth) * indentWidth) + (highlightHorizontalPadding * 2))
+                let rect = NSRect(
+                    x: x,
+                    y: origin.y + lineRect.minY + highlightVerticalInset,
+                    width: width,
+                    height: max(1, lineRect.height - (highlightVerticalInset * 2))
+                )
                 NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
             }
         }
