@@ -50,7 +50,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             editorState: editorState,
             editorBridge: editorBridge,
             onUserEdit: { [weak self] in
-                self?.store.clearDeletedNoteUndo()
+                withAnimation(.easeOut(duration: 0.18)) {
+                    self?.store.clearDeletedNoteUndo()
+                }
             },
             onQueryChange: { [weak self] query in
                 self?.updateSearch(query: query)
@@ -80,7 +82,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
                 self?.undoLastDeletedNote()
             },
             onDismissDeletedToast: { [weak self] in
-                self?.store.dismissDeletedNoteToast()
+                withAnimation(.easeOut(duration: 0.18)) {
+                    self?.store.dismissDeletedNoteToast()
+                }
             }
         )
         hostingView.rootView = rootView
@@ -108,7 +112,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
             if event.keyCode == 51, modifiers.contains(.command), self.store.deletedNoteToast != nil {
-                self.store.dismissDeletedNoteToast()
+                withAnimation(.easeOut(duration: 0.18)) {
+                    self.store.dismissDeletedNoteToast()
+                }
                 return nil
             }
 
@@ -601,6 +607,11 @@ private struct NoteEditorView: View {
     let onUndoDeletedNote: () -> Void
     let onDismissDeletedToast: () -> Void
     @State private var toastDismissWorkItem: DispatchWorkItem?
+    @State private var toastRemovalWorkItem: DispatchWorkItem?
+    @State private var renderedToast: DeletedNoteToast?
+    @State private var isToastVisible = false
+    private let toastAnimationDuration: TimeInterval = 0.18
+    private let toastAutoDismissDelay: TimeInterval = 5
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -661,20 +672,21 @@ private struct NoteEditorView: View {
                 }
             }
 
-            if let toast = store.deletedNoteToast {
+            if let toast = renderedToast {
                 VStack {
                     Spacer()
                     HStack {
                         Spacer()
                         DeletedNoteToastView(
                             onUndo: onUndoDeletedNote,
-                            onDismiss: onDismissDeletedToast
+                            onDismiss: dismissToastFromUI
                         )
                     }
                 }
                 .padding(.trailing, 14)
                 .padding(.bottom, 10)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .opacity(isToastVisible ? 1 : 0)
+                .offset(y: isToastVisible ? 0 : 12)
                 .zIndex(4)
                 .id(toast.id)
             }
@@ -687,20 +699,59 @@ private struct NoteEditorView: View {
         }
         .onChange(of: store.deletedNoteToast?.id) { _, newToastID in
             toastDismissWorkItem?.cancel()
-            guard newToastID != nil else { return }
+            toastRemovalWorkItem?.cancel()
+
+            if newToastID == nil {
+                guard renderedToast != nil else {
+                    isToastVisible = false
+                    return
+                }
+                animateToastOutAndRemove(clearStoreOnCompletion: false)
+                return
+            }
+
+            renderedToast = store.deletedNoteToast
+            isToastVisible = false
+            withAnimation(.easeOut(duration: toastAnimationDuration)) {
+                isToastVisible = true
+            }
 
             let workItem = DispatchWorkItem {
-                onDismissDeletedToast()
+                dismissToastFromUI()
             }
             toastDismissWorkItem = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: workItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + toastAutoDismissDelay, execute: workItem)
         }
         .onDisappear {
             toastDismissWorkItem?.cancel()
+            toastRemovalWorkItem?.cancel()
         }
-        .animation(.easeOut(duration: 0.18), value: store.deletedNoteToast?.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.clear)
+    }
+
+    private func dismissToastFromUI() {
+        toastDismissWorkItem?.cancel()
+        toastRemovalWorkItem?.cancel()
+        guard renderedToast != nil else {
+            onDismissDeletedToast()
+            return
+        }
+        animateToastOutAndRemove(clearStoreOnCompletion: true)
+    }
+
+    private func animateToastOutAndRemove(clearStoreOnCompletion: Bool) {
+        withAnimation(.easeOut(duration: toastAnimationDuration)) {
+            isToastVisible = false
+        }
+        let removal = DispatchWorkItem {
+            renderedToast = nil
+            if clearStoreOnCompletion {
+                onDismissDeletedToast()
+            }
+        }
+        toastRemovalWorkItem = removal
+        DispatchQueue.main.asyncAfter(deadline: .now() + toastAnimationDuration, execute: removal)
     }
 }
 
