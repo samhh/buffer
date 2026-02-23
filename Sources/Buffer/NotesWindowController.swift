@@ -1277,7 +1277,7 @@ private final class LineDeleteOnCutTextView: NSTextView {
 }
 
 private final class ListBulletLayoutManager: NSLayoutManager {
-    private let indentWidth = ("  " as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
+    private let indentWidth = (SmartListEditing.indentUnit as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
     private let blockPalette: [NSColor] = [
         NSColor.systemBlue.withAlphaComponent(0.09),
         NSColor.systemGreen.withAlphaComponent(0.09),

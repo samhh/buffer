@@ -10,7 +10,7 @@ final class SmartListEditingTests: XCTestCase {
         XCTAssertEqual(text, "foo\n")
 
         (text, selection) = apply(.indent, to: text, selection: selection)
-        XCTAssertEqual(text, "foo\n  ")
+        XCTAssertEqual(text, "foo\n    ")
 
         (text, selection) = apply(.enter, to: text, selection: selection)
         XCTAssertEqual(text, "foo\n")
@@ -24,12 +24,12 @@ final class SmartListEditingTests: XCTestCase {
         let selection = NSRange(location: 4, length: 0) // Start of "bar"
 
         let (updated, _) = apply(.indent, to: text, selection: selection)
-        XCTAssertEqual(updated, "foo\n  bar\n")
+        XCTAssertEqual(updated, "foo\n    bar\n")
     }
 
     func testBackspaceInIndentDeletesToLineStart() {
-        let text = "  foo"
-        let selection = NSRange(location: 2, length: 0) // After indent
+        let text = "    foo"
+        let selection = NSRange(location: 4, length: 0) // After indent
 
         let (updated, newSelection) = apply(.backspace, to: text, selection: selection)
         XCTAssertEqual(updated, "foo")
@@ -42,7 +42,7 @@ final class SmartListEditingTests: XCTestCase {
         let selection = NSRange(location: text.count, length: 0)
 
         let (updated, newSelection) = apply(.indent, to: text, selection: selection)
-        XCTAssertEqual(updated, "parent\n  ")
+        XCTAssertEqual(updated, "parent\n    ")
         XCTAssertEqual(newSelection.location, updated.count)
     }
 

@@ -15,7 +15,7 @@ struct SmartListEdit {
 }
 
 enum SmartListEditing {
-    static let indentUnit = "  "
+    static let indentUnit = "    "
 
     static func makeEdit(text: String, selection: NSRange, action: SmartListAction) -> SmartListEdit {
         let nsText = text as NSString
@@ -55,7 +55,7 @@ enum SmartListEditing {
         }
 
         let leadingSpacesRaw = rawLine.prefix { $0 == " " }.count
-        let leadingSpaces = (leadingSpacesRaw / 2) * 2
+        let leadingSpaces = (leadingSpacesRaw / indentUnit.count) * indentUnit.count
         let indent = String(repeating: " ", count: leadingSpaces)
         let body = String(rawLine.dropFirst(leadingSpacesRaw))
 

@@ -24,7 +24,7 @@ enum RootGroupStyling {
             let contentRange = contentRangeOfLine(in: text, lineRange: lineRange)
             let content = contentRange.length > 0 ? text.substring(with: contentRange) : ""
             let trimmed = content.trimmingCharacters(in: .whitespaces)
-            let depth = content.prefix { $0 == " " }.count / 2
+            let depth = content.prefix { $0 == " " }.count / SmartListEditing.indentUnit.count
             lines.append(
                 ParsedIndentedLine(
                     lineIndex: lineIndex,

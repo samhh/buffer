@@ -5,11 +5,11 @@ final class RootGroupStylingTests: XCTestCase {
     func testRootGroupsAreDeterministicForSameInput() {
         let text = """
         Parent A
-          child A1
-          child A2
+            child A1
+            child A2
 
         Parent B
-          child B1
+            child B1
         """
         let nsText = text as NSString
 
@@ -29,13 +29,13 @@ final class RootGroupStylingTests: XCTestCase {
     func testColorsCycleTopToBottomByGroupOrder() {
         let text = """
         A
-          a1
+            a1
         B
-          b1
+            b1
         C
-          c1
+            c1
         D
-          d1
+            d1
         """
         let groups = RootGroupStyling.rootGroups(from: RootGroupStyling.parseLines(in: text as NSString), paletteCount: 3)
         XCTAssertEqual(groups.count, 4)
