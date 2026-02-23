@@ -657,7 +657,7 @@ private struct SearchOverlayView: View {
                                 if !result.snippet.isEmpty {
                                     Text(highlightedSnippet(line: result.snippet, query: query, colors: highlightColors))
                                         .font(.system(size: 12))
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(index == selectedIndex ? .primary : .secondary)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
@@ -666,7 +666,15 @@ private struct SearchOverlayView: View {
                             .padding(.vertical, 7)
                             .background(
                                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(index == selectedIndex ? .white.opacity(0.05) : .clear)
+                                    .fill(index == selectedIndex ? AnyShapeStyle(.thinMaterial) : AnyShapeStyle(.clear))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .fill(index == selectedIndex ? .black.opacity(0.07) : .clear)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .strokeBorder(index == selectedIndex ? .white.opacity(0.30) : .clear, lineWidth: 1)
+                                    )
                             )
                         }
                         .buttonStyle(.plain)
@@ -709,7 +717,7 @@ private struct SearchOverlayView: View {
                let upper = AttributedString.Index(foundRange.upperBound, within: attributed) {
                 let color = colors[matchIndex % colors.count]
                 attributed[lower..<upper].foregroundColor = .primary
-                attributed[lower..<upper].backgroundColor = .init(color.opacity(0.38))
+                attributed[lower..<upper].backgroundColor = .init(color.opacity(0.78))
             }
             searchStart = foundRange.upperBound
             matchIndex += 1
