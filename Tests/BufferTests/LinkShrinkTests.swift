@@ -1,0 +1,97 @@
+import XCTest
+@testable import Buffer
+
+final class LinkShrinkTests: XCTestCase {
+    func testDetectLinksFindsMultipleSchemes() {
+        let text = "See https://example.com/a/b and mailto:team@example.com then slack://channel?id=42"
+        let spans = LinkShrink.detectLinks(in: text as NSString)
+
+        XCTAssertEqual(spans.count, 3)
+        XCTAssertEqual(spans.map(\.urlString), [
+            "https://example.com/a/b",
+            "mailto:team@example.com",
+            "slack://channel?id=42"
+        ])
+    }
+
+    func testDetectLinksExcludesTrailingPunctuation() {
+        let text = "Check this out: https://example.com/path/end."
+        let spans = LinkShrink.detectLinks(in: text as NSString)
+
+        XCTAssertEqual(spans.count, 1)
+        XCTAssertEqual(spans[0].urlString, "https://example.com/path/end")
+    }
+
+    func testDetectLinksDoesNotConsumeTrailingWhitespace() {
+        let text = "before https://example.com/long/path after"
+        let nsText = text as NSString
+        let spans = LinkShrink.detectLinks(in: nsText)
+
+        XCTAssertEqual(spans.count, 1)
+        XCTAssertEqual(spans[0].urlString, "https://example.com/long/path")
+        XCTAssertEqual(nsText.substring(with: spans[0].range), "https://example.com/long/path")
+        XCTAssertEqual(nsText.substring(with: NSRange(location: spans[0].range.location + spans[0].range.length, length: 1)), " ")
+    }
+
+    func testDisplayTextUsesHostAndTailForDeepPath() {
+        let url = "https://docs.google.com/document/d/1abc1234567890/edit?usp=sharing"
+        XCTAssertEqual(LinkShrink.displayText(for: url), "docs.google.com/.../edit")
+    }
+
+    func testDisplayTextDropsLeadingWWWSubdomain() {
+        let url = "https://www.raycast.com/blog/notes"
+        XCTAssertEqual(LinkShrink.displayText(for: url), "raycast.com/.../notes")
+    }
+
+    func testDisplayTextKeepsWWWForDeeperSubdomains() {
+        let url = "https://www.foo.bar.com/path/notes"
+        XCTAssertEqual(LinkShrink.displayText(for: url), url)
+    }
+
+    func testDisplayTextKeepsProtocolForNonHTTPS() {
+        let url = "http://example.com/a/very/long/path/with/segments/notes"
+        XCTAssertEqual(LinkShrink.displayText(for: url), "http://example.com/.../notes")
+    }
+
+    func testDisplayTextDoesNotDropWWWForNonHTTPS() {
+        let url = "http://www.raycast.com/a/very/long/path/notes"
+        XCTAssertEqual(LinkShrink.displayText(for: url), "http://www.raycast.com/.../notes")
+    }
+
+    func testDisplayTextFallsBackToQueryTail() {
+        let url = "https://api.example.com?query=something-long&source=buffer"
+        XCTAssertEqual(LinkShrink.displayText(for: url), "api.example.com/...?source=buffer")
+    }
+
+    func testDisplayTextLeavesShortLinksUnchanged() {
+        let url = "https://example.com/a"
+        XCTAssertEqual(LinkShrink.displayText(for: url), url)
+    }
+
+    func testDisplayTextFallsBackForInvalidLongValue() {
+        let raw = "this-is-not-a-url-but-it-is-definitely-long-enough-to-truncate-cleanly"
+        let display = LinkShrink.displayText(for: raw)
+        XCTAssertTrue(display.contains("..."))
+        XCTAssertNotEqual(display, raw)
+    }
+
+    func testActiveLinkRangeForCaretAndSelection() {
+        let spans: [ShrunkLinkSpan] = [
+            .init(range: NSRange(location: 4, length: 8), urlString: "https://a.com", displayText: "a.com")
+        ]
+
+        XCTAssertEqual(LinkShrink.activeLinkRange(in: spans, selection: NSRange(location: 6, length: 0)), spans[0].range)
+        XCTAssertNil(LinkShrink.activeLinkRange(in: spans, selection: NSRange(location: 2, length: 0)))
+        XCTAssertEqual(LinkShrink.activeLinkRange(in: spans, selection: NSRange(location: 10, length: 4)), spans[0].range)
+    }
+
+    func testSpanContainingCharacterIndexResolvesInsideRange() {
+        let spanA = ShrunkLinkSpan(range: NSRange(location: 0, length: 5), urlString: "a://x", displayText: "a")
+        let spanB = ShrunkLinkSpan(range: NSRange(location: 10, length: 4), urlString: "b://y", displayText: "b")
+        let spans = [spanA, spanB]
+
+        XCTAssertEqual(LinkShrink.span(containing: 2, in: spans), spanA)
+        XCTAssertEqual(LinkShrink.span(containing: 11, in: spans), spanB)
+        XCTAssertNil(LinkShrink.span(containing: 8, in: spans))
+    }
+}

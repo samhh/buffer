@@ -1197,6 +1197,7 @@ private struct PlainTextEditor: NSViewRepresentable {
         textView.autoresizingMask = NSView.AutoresizingMask.width
         textView.string = text
         applyParagraphStyle(in: textView)
+        textView.refreshLinkSpans()
         editorBridge.textView = textView
 
         let scrollView = NSScrollView()
@@ -1218,6 +1219,9 @@ private struct PlainTextEditor: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
             applyParagraphStyle(in: textView)
+            if let linkAwareTextView = textView as? LineDeleteOnCutTextView {
+                linkAwareTextView.refreshLinkSpans()
+            }
         }
 
         if context.coordinator.lastFocusToken != focusToken {
@@ -1242,11 +1246,26 @@ private struct PlainTextEditor: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else {
                 return
             }
+            if let linkAwareTextView = textView as? LineDeleteOnCutTextView {
+                linkAwareTextView.refreshLinkSpans()
+            }
             text = textView.string
             let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
             textView.layoutManager?.invalidateDisplay(forCharacterRange: fullRange)
             textView.setNeedsDisplay(textView.bounds)
             onUserEdit()
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else {
+                return
+            }
+            if let linkAwareTextView = textView as? LineDeleteOnCutTextView {
+                linkAwareTextView.refreshSelectionLinkState()
+            }
+            let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
+            textView.layoutManager?.invalidateDisplay(forCharacterRange: fullRange)
+            textView.setNeedsDisplay(textView.bounds)
         }
     }
 
@@ -1258,6 +1277,45 @@ private struct PlainTextEditor: NSViewRepresentable {
 }
 
 private final class LineDeleteOnCutTextView: NSTextView {
+    private(set) var linkSpans: [ShrunkLinkSpan] = []
+    nonisolated(unsafe) private(set) var linkSpansForDisplay: [ShrunkLinkSpan] = []
+    nonisolated(unsafe) private(set) var activeLinkRangeForDisplay: NSRange?
+    private var linkTrackingArea: NSTrackingArea?
+    private var rememberedLinkRangeForVerticalNavigation: NSRange?
+    private var expandRememberedLinkForCurrentVerticalMove = false
+
+    func refreshLinkSpans() {
+        linkSpans = LinkShrink.detectLinks(in: string as NSString)
+        if let remembered = rememberedLinkRangeForVerticalNavigation,
+           LinkShrink.span(containing: remembered.location, in: linkSpans) == nil {
+            rememberedLinkRangeForVerticalNavigation = nil
+        }
+        syncLinkDisplayState()
+        invalidateShrinkDisplay()
+        updateCursorForCurrentLocation()
+    }
+
+    func refreshSelectionLinkState() {
+        let currentSelection = selectedRange()
+        let currentActiveRange = LinkShrink.activeLinkRange(in: linkSpans, selection: currentSelection)
+        if let currentActiveRange {
+            rememberedLinkRangeForVerticalNavigation = currentActiveRange
+        }
+        expandRememberedLinkForCurrentVerticalMove = false
+        syncLinkDisplayState()
+        updateCursorForCurrentLocation()
+    }
+
+    func activeLinkRangeForSelection() -> NSRange? {
+        if let active = LinkShrink.activeLinkRange(in: linkSpans, selection: selectedRange()) {
+            return active
+        }
+        guard expandRememberedLinkForCurrentVerticalMove else {
+            return nil
+        }
+        return rememberedLinkRangeForVerticalNavigation
+    }
+
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(cut(_:)) {
             return true
@@ -1275,6 +1333,28 @@ private final class LineDeleteOnCutTextView: NSTextView {
             if event.keyCode == 125, applySmartListEdit(action: .moveLineDown) {
                 return
             }
+        }
+
+        let isVerticalArrow = (event.keyCode == 125 || event.keyCode == 126)
+            && !modifiers.contains(.command)
+            && !modifiers.contains(.option)
+            && !modifiers.contains(.control)
+        let isHorizontalArrow = (event.keyCode == 123 || event.keyCode == 124)
+            && !modifiers.contains(.command)
+            && !modifiers.contains(.option)
+            && !modifiers.contains(.control)
+
+        if isHorizontalArrow {
+            rememberedLinkRangeForVerticalNavigation = nil
+            expandRememberedLinkForCurrentVerticalMove = false
+        } else if isVerticalArrow {
+            if let active = LinkShrink.activeLinkRange(in: linkSpans, selection: selectedRange()) {
+                rememberedLinkRangeForVerticalNavigation = active
+            }
+            expandRememberedLinkForCurrentVerticalMove = rememberedLinkRangeForVerticalNavigation != nil
+            syncLinkDisplayState()
+        } else {
+            expandRememberedLinkForCurrentVerticalMove = false
         }
 
         let isPlainTab = event.keyCode == 48 && !modifiers.contains(.command) && !modifiers.contains(.control) && !modifiers.contains(.option)
@@ -1332,6 +1412,47 @@ private final class LineDeleteOnCutTextView: NSTextView {
         super.insertNewline(sender)
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        invalidateShrinkDisplay()
+    }
+
+    override func updateTrackingAreas() {
+        if let linkTrackingArea {
+            removeTrackingArea(linkTrackingArea)
+        }
+        linkTrackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseMoved],
+            owner: self,
+            userInfo: nil
+        )
+        if let linkTrackingArea {
+            addTrackingArea(linkTrackingArea)
+        }
+        super.updateTrackingAreas()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        updateCursor(for: event)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        super.flagsChanged(with: event)
+        updateCursorForCurrentLocation(with: event.modifierFlags)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        expandRememberedLinkForCurrentVerticalMove = false
+        rememberedLinkRangeForVerticalNavigation = nil
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if modifiers.contains(.command), openLinkAtMouseLocation(event) {
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
     private func applySmartListEdit(action: SmartListAction) -> Bool {
         let currentText = string
         let edit = SmartListEditing.makeEdit(text: currentText, selection: selectedRange(), action: action)
@@ -1352,15 +1473,90 @@ private final class LineDeleteOnCutTextView: NSTextView {
         scrollRangeToVisible(edit.selection)
         return true
     }
+
+    private func invalidateShrinkDisplay() {
+        let fullRange = NSRange(location: 0, length: (string as NSString).length)
+        layoutManager?.invalidateDisplay(forCharacterRange: fullRange)
+        setNeedsDisplay(bounds)
+    }
+
+    private func syncLinkDisplayState() {
+        linkSpansForDisplay = linkSpans
+        activeLinkRangeForDisplay = activeLinkRangeForSelection()
+        if let linkLayoutManager = layoutManager as? ListBulletLayoutManager {
+            linkLayoutManager.updateLinkCompression(
+                spans: linkSpansForDisplay,
+                activeRange: activeLinkRangeForDisplay
+            )
+        }
+    }
+
+    private func openLinkAtMouseLocation(_ event: NSEvent) -> Bool {
+        let pointInTextView = convert(event.locationInWindow, from: nil)
+        guard let span = linkSpan(at: pointInTextView),
+              let url = URL(string: span.urlString) else {
+            return false
+        }
+        return NSWorkspace.shared.open(url)
+    }
+
+    private func linkSpan(at pointInTextView: NSPoint) -> ShrunkLinkSpan? {
+        guard let layoutManager,
+              let textContainer else {
+            return nil
+        }
+
+        let containerOrigin = textContainerOrigin
+        let pointInContainer = NSPoint(
+            x: pointInTextView.x - containerOrigin.x,
+            y: pointInTextView.y - containerOrigin.y
+        )
+
+        for span in linkSpans {
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: span.range, actualCharacterRange: nil)
+            guard glyphRange.location != NSNotFound, glyphRange.length > 0 else {
+                continue
+            }
+            let linkRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer).insetBy(dx: -1.5, dy: -1.5)
+            if linkRect.contains(pointInContainer) {
+                return span
+            }
+        }
+
+        var fraction: CGFloat = 0
+        let glyphIndex = layoutManager.glyphIndex(for: pointInContainer, in: textContainer, fractionOfDistanceThroughGlyph: &fraction)
+        guard glyphIndex != NSNotFound else {
+            return nil
+        }
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        return LinkShrink.span(containing: charIndex, in: linkSpans)
+    }
+
+    private func updateCursor(for event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let point = convert(event.locationInWindow, from: nil)
+        let shouldShowPointer = modifiers.contains(.command) && linkSpan(at: point) != nil
+        (shouldShowPointer ? NSCursor.pointingHand : NSCursor.iBeam).set()
+    }
+
+    private func updateCursorForCurrentLocation(with modifiers: NSEvent.ModifierFlags? = nil) {
+        guard let window else { return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        let effectiveModifiers = modifiers?.intersection(.deviceIndependentFlagsMask) ?? NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let shouldShowPointer = effectiveModifiers.contains(.command) && linkSpan(at: point) != nil
+        (shouldShowPointer ? NSCursor.pointingHand : NSCursor.iBeam).set()
+    }
 }
 
 private final class ListBulletLayoutManager: NSLayoutManager {
     private let indentWidth = (SmartListEditing.indentUnit as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
     private let markerCenterYOffset: CGFloat = 10
+    private var compressedLinkRanges: [NSRange] = []
 
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
         drawIndentMarkers(forGlyphRange: glyphsToShow, at: origin)
+        drawShrunkLinks(forGlyphRange: glyphsToShow, at: origin)
     }
 
     private func drawIndentMarkers(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
@@ -1410,4 +1606,122 @@ private final class ListBulletLayoutManager: NSLayoutManager {
         marker.stroke()
     }
 
+    func updateLinkCompression(spans: [ShrunkLinkSpan], activeRange: NSRange?) {
+        guard let textStorage else {
+            compressedLinkRanges = []
+            return
+        }
+        let fullLength = (textStorage.string as NSString).length
+        clearCompressedLinkAttributes(in: textStorage, currentTextLength: fullLength)
+        guard fullLength > 0 else {
+            return
+        }
+
+        let baseFont = NSFont.systemFont(ofSize: 14)
+        textStorage.beginEditing()
+        for span in spans {
+            guard span.range.location != NSNotFound,
+                  span.range.length > 0,
+                  NSMaxRange(span.range) <= fullLength else {
+                continue
+            }
+            if let activeRange, NSIntersectionRange(activeRange, span.range).length > 0 {
+                continue
+            }
+
+            let originalText = (textStorage.string as NSString).substring(with: span.range)
+            let originalWidth = (originalText as NSString).size(withAttributes: [.font: baseFont]).width
+            let displayWidth = (span.displayText as NSString).size(withAttributes: [.font: baseFont]).width
+            let glyphCount = max(span.range.length, 1)
+            let kern: CGFloat
+            if glyphCount > 1, originalWidth > 0 {
+                kern = (displayWidth - originalWidth) / CGFloat(glyphCount - 1)
+            } else {
+                kern = 0
+            }
+
+            textStorage.addAttribute(.foregroundColor, value: NSColor.clear, range: span.range)
+            if span.range.length > 1 {
+                let kernRange = NSRange(location: span.range.location, length: span.range.length - 1)
+                textStorage.addAttribute(.kern, value: kern, range: kernRange)
+            }
+            compressedLinkRanges.append(span.range)
+        }
+        textStorage.endEditing()
+
+        let fullRange = NSRange(location: 0, length: fullLength)
+        invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+        invalidateDisplay(forCharacterRange: fullRange)
+    }
+
+    private func clearCompressedLinkAttributes(in textStorage: NSTextStorage, currentTextLength: Int) {
+        textStorage.beginEditing()
+        for range in compressedLinkRanges {
+            guard range.location != NSNotFound, range.location < currentTextLength else {
+                continue
+            }
+            let safeLength = min(range.length, currentTextLength - range.location)
+            guard safeLength > 0 else { continue }
+            let safeRange = NSRange(location: range.location, length: safeLength)
+            textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: safeRange)
+            textStorage.removeAttribute(.kern, range: safeRange)
+        }
+        textStorage.endEditing()
+        compressedLinkRanges.removeAll(keepingCapacity: true)
+    }
+
+    private func drawShrunkLinks(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let textView = primaryTextView as? LineDeleteOnCutTextView else {
+            return
+        }
+        let spans = inactiveSpansForDisplay(
+            spans: textView.linkSpansForDisplay,
+            activeRange: textView.activeLinkRangeForDisplay
+        )
+        let font = NSFont.systemFont(ofSize: 14)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.linkColor
+        ]
+
+        for span in spans {
+            let glyphRange = glyphRange(forCharacterRange: span.range, actualCharacterRange: nil)
+            if glyphRange.location == NSNotFound || NSIntersectionRange(glyphRange, glyphsToShow).length == 0 {
+                continue
+            }
+
+            let glyphIndex = glyphRange.location
+            let lineRect = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+            let glyphLocation = location(forGlyphAt: glyphIndex)
+            let baselineY = origin.y + lineRect.minY + glyphLocation.y
+            let drawPoint = NSPoint(
+                x: origin.x + lineRect.minX + glyphLocation.x,
+                y: baselineY - font.ascender
+            )
+
+            // Keep replacement text inside the same visual line to avoid bleeding into neighbors.
+            let clipRect = NSRect(
+                x: origin.x + lineRect.minX,
+                y: origin.y + lineRect.minY,
+                width: lineRect.width,
+                height: lineRect.height
+            )
+
+            NSGraphicsContext.current?.saveGraphicsState()
+            NSBezierPath(rect: clipRect).addClip()
+            (span.displayText as NSString).draw(at: drawPoint, withAttributes: attributes)
+            NSGraphicsContext.current?.restoreGraphicsState()
+        }
+    }
+
+    private func inactiveSpansForDisplay(spans: [ShrunkLinkSpan], activeRange: NSRange?) -> [ShrunkLinkSpan] {
+        if let activeRange {
+            return spans.filter { NSIntersectionRange($0.range, activeRange).length == 0 }
+        }
+        return spans
+    }
+
+    private var primaryTextView: NSTextView? {
+        textContainers.compactMap(\.textView).first
+    }
 }
