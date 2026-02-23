@@ -864,7 +864,7 @@ private struct SearchOverlayView: View {
             )
 
             ScrollView {
-                VStack(spacing: 4) {
+                VStack(spacing: 2) {
                     ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
                         let isActive = index == selectedIndex || index == hoveredIndex
                         let showsTrash = index == hoveredIndex
