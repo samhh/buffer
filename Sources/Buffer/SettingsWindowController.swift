@@ -8,16 +8,22 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let hostingView = NSHostingView(rootView: rootView)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 220),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 320),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
 
         window.title = "Buffer Settings"
+        window.titleVisibility = .visible
         window.isReleasedWhenClosed = false
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        let toolbar = NSToolbar(identifier: "BufferSettingsToolbar")
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
         window.center()
         window.contentView = hostingView
 
@@ -41,25 +47,41 @@ private struct SettingsView: View {
     @ObservedObject var preferences: PreferencesStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Toggle Hotkey")
-                    .font(.headline)
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+                .ignoresSafeArea()
 
-                ShortcutRecorderField(preferences: preferences)
+            VStack(alignment: .leading, spacing: 26) {
+                SettingsSection(title: "General") {
+                    SettingsCard {
+                        SettingsRow(title: "Toggle hotkey") {
+                            ShortcutRecorderField(preferences: preferences)
+                                .frame(width: 190)
+                        }
+                    }
+                }
+
+                SettingsSection(title: "Startup") {
+                    SettingsCard {
+                        SettingsRow(title: "Launch at login") {
+                            Toggle(isOn: $preferences.launchAtLoginEnabled) {
+                                EmptyView()
+                            }
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .scaleEffect(0.88)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
             }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Startup")
-                    .font(.headline)
-
-                Toggle("Launch at login", isOn: $preferences.launchAtLoginEnabled)
-            }
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
         }
-        .padding(16)
-        .frame(width: 380, height: 220)
+        .frame(width: 460, height: 320)
     }
 }
 
@@ -72,22 +94,26 @@ private struct ShortcutRecorderField: View {
         Button(action: toggleRecording) {
             HStack {
                 Text(isRecording ? "Type shortcut..." : preferences.hotKeyDisplayGlyphs)
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(.primary)
                 Spacer()
                 Text(isRecording ? "Recording" : "Edit")
-                    .font(.caption)
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.thinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(.black.opacity(0.04))
+                    )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(isRecording ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isRecording ? Color.accentColor.opacity(0.95) : .white.opacity(0.2), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -130,5 +156,55 @@ private struct ShortcutRecorderField: View {
             NSEvent.removeMonitor(monitor)
             self.monitor = nil
         }
+    }
+}
+
+private struct SettingsSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 13.5, weight: .semibold))
+                .foregroundStyle(.primary)
+                .padding(.leading, 9)
+            content
+        }
+    }
+}
+
+private struct SettingsCard<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            content
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.black.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+                )
+        )
+    }
+}
+
+private struct SettingsRow<Trailing: View>: View {
+    let title: String
+    @ViewBuilder let trailing: Trailing
+
+    var body: some View {
+            HStack(spacing: 12) {
+                Text(title)
+                .font(.system(size: 13))
+                .foregroundStyle(.primary)
+                Spacer()
+                trailing
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 }
