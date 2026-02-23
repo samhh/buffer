@@ -1066,6 +1066,30 @@ private final class LineDeleteOnCutTextView: NSTextView {
         return super.validateUserInterfaceItem(item)
     }
 
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let isPlainTab = event.keyCode == 48 && !modifiers.contains(.command) && !modifiers.contains(.control) && !modifiers.contains(.option)
+        if isPlainTab {
+            if modifiers.contains(.shift) {
+                if applySmartListEdit(action: .unindent) {
+                    return
+                }
+            } else {
+                if applySmartListEdit(action: .indent) {
+                    return
+                }
+            }
+        }
+
+        let isPlainEnter = (event.keyCode == 36 || event.keyCode == 76) && !modifiers.contains(.command) && !modifiers.contains(.control) && !modifiers.contains(.option)
+        if isPlainEnter {
+            insertNewline(self)
+            return
+        }
+
+        super.keyDown(with: event)
+    }
+
     override func cut(_ sender: Any?) {
         let selection = selectedRange()
         if selection.length > 0 {
@@ -1082,5 +1106,38 @@ private final class LineDeleteOnCutTextView: NSTextView {
         textStorage?.replaceCharacters(in: lineRange, with: "")
         didChangeText()
         setSelectedRange(NSRange(location: min(lineRange.location, (string as NSString).length), length: 0))
+    }
+
+    override func deleteBackward(_ sender: Any?) {
+        if applySmartListEdit(action: .backspace) {
+            return
+        }
+        super.deleteBackward(sender)
+    }
+
+    override func insertNewline(_ sender: Any?) {
+        if applySmartListEdit(action: .enter) {
+            return
+        }
+
+        super.insertNewline(sender)
+    }
+
+    private func applySmartListEdit(action: SmartListAction) -> Bool {
+        let currentText = string
+        let edit = SmartListEditing.makeEdit(text: currentText, selection: selectedRange(), action: action)
+        guard edit.handled else {
+            return false
+        }
+
+        guard shouldChangeText(in: edit.replacementRange, replacementString: edit.replacement) else {
+            return false
+        }
+
+        textStorage?.replaceCharacters(in: edit.replacementRange, with: edit.replacement)
+        didChangeText()
+        setSelectedRange(edit.selection)
+        scrollRangeToVisible(edit.selection)
+        return true
     }
 }

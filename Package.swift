@@ -14,5 +14,9 @@ let package = Package(
         .executableTarget(
             name: "Buffer"
         ),
+        .testTarget(
+            name: "BufferTests",
+            dependencies: ["Buffer"]
+        ),
     ]
 )
