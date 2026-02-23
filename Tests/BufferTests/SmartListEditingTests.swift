@@ -46,11 +46,81 @@ final class SmartListEditingTests: XCTestCase {
         XCTAssertEqual(newSelection.location, updated.count)
     }
 
+    func testMoveLineUpMovesCaretLine() {
+        let text = "one\ntwo\nthree"
+        let selection = NSRange(location: 4, length: 0) // Start of "two"
+
+        let (updated, newSelection) = apply(.moveLineUp, to: text, selection: selection)
+        XCTAssertEqual(updated, "two\none\nthree")
+        XCTAssertEqual(newSelection.location, 0)
+        XCTAssertEqual(newSelection.length, 0)
+    }
+
+    func testMoveLineDownMovesCaretLine() {
+        let text = "one\ntwo\nthree"
+        let selection = NSRange(location: 4, length: 0) // Start of "two"
+
+        let (updated, newSelection) = apply(.moveLineDown, to: text, selection: selection)
+        XCTAssertEqual(updated, "one\nthree\ntwo")
+        XCTAssertEqual(newSelection.location, 10)
+        XCTAssertEqual(newSelection.length, 0)
+    }
+
+    func testMoveLineDownMovesWholeIntersectingLinesForPartialSelection() {
+        let text = "aa\nbb\ncc\ndd"
+        let selection = NSRange(location: 1, length: 5) // Partial across "aa\nbb"
+
+        let (updated, newSelection) = apply(.moveLineDown, to: text, selection: selection)
+        XCTAssertEqual(updated, "cc\naa\nbb\ndd")
+        XCTAssertEqual(newSelection.location, 4)
+        XCTAssertEqual(newSelection.length, 5)
+    }
+
+    func testMoveLineUpPreservesSelectionLengthForMultilineSelection() {
+        let text = "l1\nl2\nl3\nl4\n"
+        let selection = NSRange(location: 3, length: 6) // "l2\nl3\n"
+
+        let (updated, newSelection) = apply(.moveLineUp, to: text, selection: selection)
+        XCTAssertEqual(updated, "l2\nl3\nl1\nl4\n")
+        XCTAssertEqual(newSelection.location, 0)
+        XCTAssertEqual(newSelection.length, 6)
+    }
+
+    func testMoveLineUpAtTopIsUnhandled() {
+        let text = "a\nb"
+        let selection = NSRange(location: 0, length: 0)
+
+        let edit = makeEdit(.moveLineUp, to: text, selection: selection)
+        XCTAssertFalse(edit.handled)
+    }
+
+    func testMoveLineDownAtBottomIsUnhandled() {
+        let text = "a\nb"
+        let selection = NSRange(location: 2, length: 0) // Start of "b"
+
+        let edit = makeEdit(.moveLineDown, to: text, selection: selection)
+        XCTAssertFalse(edit.handled)
+    }
+
+    func testMoveLineDownSelectionEndingAtNewlineDoesNotCaptureNextLine() {
+        let text = "a\nb\nc\n"
+        let selection = NSRange(location: 2, length: 2) // "b\n", ending at start of "c"
+
+        let (updated, newSelection) = apply(.moveLineDown, to: text, selection: selection)
+        XCTAssertEqual(updated, "a\nc\nb\n")
+        XCTAssertEqual(newSelection.location, 4)
+        XCTAssertEqual(newSelection.length, 2)
+    }
+
     private func apply(_ action: SmartListAction, to text: String, selection: NSRange) -> (String, NSRange) {
-        let edit = SmartListEditing.makeEdit(text: text, selection: selection, action: action)
+        let edit = makeEdit(action, to: text, selection: selection)
         XCTAssertTrue(edit.handled, "Expected action to be handled: \(action)")
         let nsText = text as NSString
         let updated = nsText.replacingCharacters(in: edit.replacementRange, with: edit.replacement)
         return (updated, edit.selection)
+    }
+
+    private func makeEdit(_ action: SmartListAction, to text: String, selection: NSRange) -> SmartListEdit {
+        SmartListEditing.makeEdit(text: text, selection: selection, action: action)
     }
 }

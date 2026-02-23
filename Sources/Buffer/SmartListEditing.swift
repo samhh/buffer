@@ -5,6 +5,8 @@ enum SmartListAction {
     case backspace
     case indent
     case unindent
+    case moveLineUp
+    case moveLineDown
 }
 
 struct SmartListEdit {
@@ -28,6 +30,10 @@ enum SmartListEditing {
             return makeIndentEdit(nsText: nsText, selection: selection)
         case .unindent:
             return makeUnindentEdit(nsText: nsText, selection: selection)
+        case .moveLineUp:
+            return makeMoveLineUpEdit(nsText: nsText, selection: selection)
+        case .moveLineDown:
+            return makeMoveLineDownEdit(nsText: nsText, selection: selection)
         }
     }
 
@@ -228,6 +234,92 @@ enum SmartListEditing {
         )
     }
 
+    private static func makeMoveLineUpEdit(nsText: NSString, selection: NSRange) -> SmartListEdit {
+        guard let target = selectedLineTargetRange(in: nsText, selection: selection) else {
+            return unhandled(selection: selection)
+        }
+        let text = nsText as String
+        let (allLines, trailingNewline) = splitLines(in: text)
+        let realLineCount = trailingNewline ? max(0, allLines.count - 1) : allLines.count
+        guard realLineCount > 0 else {
+            return unhandled(selection: selection)
+        }
+
+        let movedLineCount = target.syntheticTrailingEmptyLine ? max(0, target.lines.count - 1) : target.lines.count
+        guard movedLineCount > 0 else {
+            return unhandled(selection: selection)
+        }
+
+        let startLine = lineIndex(atLocation: target.range.location, in: nsText)
+        let endLine = startLine + movedLineCount - 1
+        guard startLine > 0, endLine < realLineCount else {
+            return unhandled(selection: selection)
+        }
+
+        var lines = Array(allLines.prefix(realLineCount))
+        let moved = Array(lines[startLine...endLine])
+        lines.removeSubrange(startLine...endLine)
+        lines.insert(contentsOf: moved, at: startLine - 1)
+
+        let replacement = rebuiltText(fromRealLines: lines, trailingNewline: trailingNewline)
+        let replacementRange = NSRange(location: 0, length: nsText.length)
+        let replacementText = replacement as NSString
+        let newLineStarts = lineStartOffsets(for: lines)
+        let newStartLocation = newLineStarts[startLine - 1]
+        let delta = newStartLocation - target.range.location
+        let newLocation = min(max(0, selection.location + delta), replacementText.length)
+        let newLength = min(max(0, selection.length), max(0, replacementText.length - newLocation))
+        return SmartListEdit(
+            handled: true,
+            replacementRange: replacementRange,
+            replacement: replacement,
+            selection: NSRange(location: newLocation, length: newLength)
+        )
+    }
+
+    private static func makeMoveLineDownEdit(nsText: NSString, selection: NSRange) -> SmartListEdit {
+        guard let target = selectedLineTargetRange(in: nsText, selection: selection) else {
+            return unhandled(selection: selection)
+        }
+        let text = nsText as String
+        let (allLines, trailingNewline) = splitLines(in: text)
+        let realLineCount = trailingNewline ? max(0, allLines.count - 1) : allLines.count
+        guard realLineCount > 0 else {
+            return unhandled(selection: selection)
+        }
+
+        let movedLineCount = target.syntheticTrailingEmptyLine ? max(0, target.lines.count - 1) : target.lines.count
+        guard movedLineCount > 0 else {
+            return unhandled(selection: selection)
+        }
+
+        let startLine = lineIndex(atLocation: target.range.location, in: nsText)
+        let endLine = startLine + movedLineCount - 1
+        guard endLine < realLineCount - 1 else {
+            return unhandled(selection: selection)
+        }
+
+        var lines = Array(allLines.prefix(realLineCount))
+        let moved = Array(lines[startLine...endLine])
+        lines.removeSubrange(startLine...endLine)
+        lines.insert(contentsOf: moved, at: startLine + 1)
+
+        let replacement = rebuiltText(fromRealLines: lines, trailingNewline: trailingNewline)
+        let replacementRange = NSRange(location: 0, length: nsText.length)
+        let replacementText = replacement as NSString
+        let newLineStarts = lineStartOffsets(for: lines)
+        let newStartLocation = newLineStarts[startLine + 1]
+        let delta = newStartLocation - target.range.location
+        let newLocation = min(max(0, selection.location + delta), replacementText.length)
+        let newLength = min(max(0, selection.length), max(0, replacementText.length - newLocation))
+        return SmartListEdit(
+            handled: true,
+            replacementRange: replacementRange,
+            replacement: replacement,
+            selection: NSRange(location: newLocation, length: newLength)
+        )
+    }
+
     private static func unhandled(selection: NSRange) -> SmartListEdit {
         SmartListEdit(handled: false, replacementRange: NSRange(location: 0, length: 0), replacement: "", selection: selection)
     }
@@ -294,5 +386,43 @@ enum SmartListEditing {
     private static func normalizedIndentCount(_ line: String) -> Int {
         let spaces = line.prefix { $0 == " " }.count
         return (spaces / indentUnit.count) * indentUnit.count
+    }
+
+    private static func splitLines(in text: String) -> (lines: [String], trailingNewline: Bool) {
+        let trailingNewline = text.hasSuffix("\n")
+        return (text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init), trailingNewline)
+    }
+
+    private static func rebuiltText(fromRealLines lines: [String], trailingNewline: Bool) -> String {
+        let core = lines.joined(separator: "\n")
+        return trailingNewline ? core + "\n" : core
+    }
+
+    private static func lineStartOffsets(for lines: [String]) -> [Int] {
+        var starts: [Int] = []
+        starts.reserveCapacity(lines.count)
+        var location = 0
+        for (index, line) in lines.enumerated() {
+            starts.append(location)
+            location += line.count
+            if index < lines.count - 1 {
+                location += 1
+            }
+        }
+        return starts
+    }
+
+    private static func lineIndex(atLocation location: Int, in text: NSString) -> Int {
+        guard text.length > 0 else { return 0 }
+        let safeLocation = min(max(0, location), text.length)
+        if safeLocation == 0 {
+            return 0
+        }
+        let prefix = text.substring(with: NSRange(location: 0, length: safeLocation))
+        return prefix.reduce(into: 0) { count, character in
+            if character == "\n" {
+                count += 1
+            }
+        }
     }
 }

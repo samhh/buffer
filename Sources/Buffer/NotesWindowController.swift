@@ -1267,6 +1267,16 @@ private final class LineDeleteOnCutTextView: NSTextView {
 
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let isOptionArrow = modifiers.contains(.option) && !modifiers.contains(.command) && !modifiers.contains(.control)
+        if isOptionArrow {
+            if event.keyCode == 126, applySmartListEdit(action: .moveLineUp) {
+                return
+            }
+            if event.keyCode == 125, applySmartListEdit(action: .moveLineDown) {
+                return
+            }
+        }
+
         let isPlainTab = event.keyCode == 48 && !modifiers.contains(.command) && !modifiers.contains(.control) && !modifiers.contains(.option)
         if isPlainTab {
             if modifiers.contains(.shift) {
