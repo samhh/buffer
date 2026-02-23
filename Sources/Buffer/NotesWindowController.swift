@@ -28,6 +28,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             onCloseSearch: {},
             onCloseInNoteFind: {},
             onSelectResult: { _ in },
+            onDeleteResult: { _ in },
             onHoverSearchResultIndex: { _ in }
         )
         let hostingView = NSHostingView(rootView: contentView)
@@ -64,6 +65,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             },
             onSelectResult: { [weak self] result in
                 self?.openSearchResult(result)
+            },
+            onDeleteResult: { [weak self] result in
+                self?.deleteSearchResult(result)
             },
             onHoverSearchResultIndex: { [weak self] index in
                 guard let self,
@@ -336,8 +340,12 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         guard searchState.results.indices.contains(searchState.selectedIndex) else {
             return
         }
-        let selectedResult = searchState.results[searchState.selectedIndex]
-        guard let deleted = store.deleteNote(at: selectedResult.fileURL) else {
+        deleteSearchResult(searchState.results[searchState.selectedIndex])
+    }
+
+    private func deleteSearchResult(_ result: NoteSearchResult) {
+        let deletedIndex = searchState.results.firstIndex(where: { $0.id == result.id }) ?? searchState.selectedIndex
+        guard let deleted = store.deleteNote(at: result.fileURL) else {
             return
         }
 
@@ -346,7 +354,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         if searchState.results.isEmpty {
             searchState.selectedIndex = 0
         } else {
-            searchState.selectedIndex = min(searchState.selectedIndex, searchState.results.count - 1)
+            searchState.selectedIndex = min(deletedIndex, searchState.results.count - 1)
         }
     }
 
@@ -512,6 +520,7 @@ private struct NoteEditorView: View {
     let onCloseSearch: () -> Void
     let onCloseInNoteFind: () -> Void
     let onSelectResult: (NoteSearchResult) -> Void
+    let onDeleteResult: (NoteSearchResult) -> Void
     let onHoverSearchResultIndex: (Int?) -> Void
 
     var body: some View {
@@ -547,6 +556,7 @@ private struct NoteEditorView: View {
                     highlightColors: searchState.highlightColors,
                     onClose: onCloseSearch,
                     onSelect: onSelectResult,
+                    onDelete: onDeleteResult,
                     onHoverResultIndex: onHoverSearchResultIndex
                 )
                 .padding(.top, 8)
@@ -642,9 +652,11 @@ private struct SearchOverlayView: View {
     let highlightColors: [Color]
     let onClose: () -> Void
     let onSelect: (NoteSearchResult) -> Void
+    let onDelete: (NoteSearchResult) -> Void
     let onHoverResultIndex: (Int?) -> Void
     @FocusState private var searchFocused: Bool
     @State private var hoveredIndex: Int?
+    @State private var hoveredTrashIndex: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -684,9 +696,8 @@ private struct SearchOverlayView: View {
                 VStack(spacing: 4) {
                     ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
                         let isActive = index == selectedIndex || index == hoveredIndex
-                        Button {
-                            onSelect(result)
-                        } label: {
+                        let showsTrash = index == hoveredIndex
+                        HStack(alignment: .center, spacing: 8) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(result.title)
                                     .font(.system(size: 13, weight: .semibold))
@@ -699,23 +710,51 @@ private struct SearchOverlayView: View {
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(isActive ? AnyShapeStyle(.thinMaterial) : AnyShapeStyle(.clear))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                            .fill(isActive ? .black.opacity(0.07) : .clear)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                            .strokeBorder(isActive ? .white.opacity(0.30) : .clear, lineWidth: 1)
-                                    )
-                            )
+
+                            ZStack {
+                                if showsTrash {
+                                    Button {
+                                        onDelete(result)
+                                    } label: {
+                                        Image(systemName: "trash")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: 16, height: 16)
+                                            .padding(2)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                                    .fill(hoveredTrashIndex == index ? .white.opacity(0.10) : .clear)
+                                            )
+                                    }
+                                    .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                    .onHover { hovering in
+                                        hoveredTrashIndex = hovering ? index : nil
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Delete note (Cmd+D)")
+                                }
+                            }
+                            .frame(width: 16, height: 16)
                         }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(isActive ? AnyShapeStyle(.thinMaterial) : AnyShapeStyle(.clear))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .fill(isActive ? .black.opacity(0.07) : .clear)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .strokeBorder(isActive ? .white.opacity(0.30) : .clear, lineWidth: 1)
+                                )
+                        )
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
+                        .onTapGesture {
+                            onSelect(result)
+                        }
                         .onContinuousHover { phase in
                             switch phase {
                             case .active:
@@ -726,12 +765,12 @@ private struct SearchOverlayView: View {
                             case .ended:
                                 if hoveredIndex == index {
                                     hoveredIndex = nil
+                                    hoveredTrashIndex = nil
                                     onHoverResultIndex(nil)
                                 }
                                 NSCursor.arrow.set()
                             }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
