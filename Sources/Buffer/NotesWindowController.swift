@@ -28,6 +28,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             onCloseInNoteFind: {},
             onSelectResult: { _ in },
             onDeleteResult: { _ in },
+            onTogglePinResult: { _ in },
             onHoverSearchResultIndex: { _ in },
             onUndoDeletedNote: {},
             onDismissDeletedToast: {}
@@ -71,6 +72,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             },
             onDeleteResult: { [weak self] result in
                 self?.deleteSearchResult(result)
+            },
+            onTogglePinResult: { [weak self] result in
+                self?.togglePinnedSearchResult(result)
             },
             onHoverSearchResultIndex: { [weak self] index in
                 guard let self,
@@ -301,7 +305,11 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     private func handleSearchKey(_ event: NSEvent) -> NSEvent? {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if event.keyCode == 35, modifiers.contains(.command) {
+        if event.keyCode == 35, modifiers.contains(.command), modifiers.contains(.shift) {
+            togglePinnedSelectedSearchResult()
+            return nil
+        }
+        if event.keyCode == 35, modifiers.contains(.command), !modifiers.contains(.shift) {
             hideSearch(refocusEditor: true)
             return nil
         }
@@ -421,6 +429,25 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             searchState.selectedIndex = 0
         } else {
             searchState.selectedIndex = min(deletedIndex, searchState.results.count - 1)
+        }
+    }
+
+    private func togglePinnedSelectedSearchResult() {
+        guard searchState.results.indices.contains(searchState.selectedIndex) else {
+            return
+        }
+        togglePinnedSearchResult(searchState.results[searchState.selectedIndex])
+    }
+
+    private func togglePinnedSearchResult(_ result: NoteSearchResult) {
+        _ = store.togglePinned(at: result.fileURL)
+        searchState.results = store.searchNotes(query: searchState.query)
+        if let restoredIndex = searchState.results.firstIndex(where: { $0.fileURL == result.fileURL }) {
+            searchState.selectedIndex = restoredIndex
+        } else if searchState.results.isEmpty {
+            searchState.selectedIndex = 0
+        } else {
+            searchState.selectedIndex = min(searchState.selectedIndex, searchState.results.count - 1)
         }
     }
 
@@ -603,6 +630,7 @@ private struct NoteEditorView: View {
     let onCloseInNoteFind: () -> Void
     let onSelectResult: (NoteSearchResult) -> Void
     let onDeleteResult: (NoteSearchResult) -> Void
+    let onTogglePinResult: (NoteSearchResult) -> Void
     let onHoverSearchResultIndex: (Int?) -> Void
     let onUndoDeletedNote: () -> Void
     let onDismissDeletedToast: () -> Void
@@ -647,6 +675,7 @@ private struct NoteEditorView: View {
                     onClose: onCloseSearch,
                     onSelect: onSelectResult,
                     onDelete: onDeleteResult,
+                    onTogglePin: onTogglePinResult,
                     onHoverResultIndex: onHoverSearchResultIndex
                 )
                 .padding(.top, 6)
@@ -875,9 +904,11 @@ private struct SearchOverlayView: View {
     let onClose: () -> Void
     let onSelect: (NoteSearchResult) -> Void
     let onDelete: (NoteSearchResult) -> Void
+    let onTogglePin: (NoteSearchResult) -> Void
     let onHoverResultIndex: (Int?) -> Void
     @FocusState private var searchFocused: Bool
     @State private var hoveredIndex: Int?
+    @State private var hoveredPinIndex: Int?
     @State private var hoveredTrashIndex: Int?
 
     var body: some View {
@@ -917,82 +948,7 @@ private struct SearchOverlayView: View {
             ScrollView {
                 VStack(spacing: 2) {
                     ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
-                        let isActive = index == selectedIndex || index == hoveredIndex
-                        let showsTrash = index == hoveredIndex
-                        HStack(alignment: .center, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(result.title)
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .lineLimit(1)
-                                if !result.snippet.isEmpty {
-                                    Text(highlightedSnippet(line: result.snippet, query: query, colors: highlightColors))
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(isActive ? .primary : .secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                            ZStack {
-                                if showsTrash {
-                                    Button {
-                                        onDelete(result)
-                                    } label: {
-                                        Image(systemName: "trash")
-                                            .font(.system(size: 11, weight: .semibold))
-                                            .foregroundStyle(.secondary)
-                                            .frame(width: 16, height: 16)
-                                            .padding(2)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                                    .fill(hoveredTrashIndex == index ? .white.opacity(0.10) : .clear)
-                                            )
-                                    }
-                                    .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                                    .onHover { hovering in
-                                        hoveredTrashIndex = hovering ? index : nil
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("Delete note (Cmd+D)")
-                                }
-                            }
-                            .frame(width: 16, height: 16)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(isActive ? AnyShapeStyle(.thinMaterial) : AnyShapeStyle(.clear))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                        .fill(isActive ? .black.opacity(0.07) : .clear)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                        .strokeBorder(isActive ? .white.opacity(0.30) : .clear, lineWidth: 1)
-                                )
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            onSelect(result)
-                        }
-                        .onContinuousHover { phase in
-                            switch phase {
-                            case .active:
-                                NSCursor.pointingHand.set()
-                                hoveredIndex = index
-                                selectedIndex = index
-                                onHoverResultIndex(index)
-                            case .ended:
-                                if hoveredIndex == index {
-                                    hoveredIndex = nil
-                                    hoveredTrashIndex = nil
-                                    onHoverResultIndex(nil)
-                                }
-                                NSCursor.arrow.set()
-                            }
-                        }
+                        resultRow(index: index, result: result)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1013,6 +969,118 @@ private struct SearchOverlayView: View {
                 searchFocused = true
             }
         }
+    }
+
+    private func resultRow(index: Int, result: NoteSearchResult) -> some View {
+        let isActive = index == selectedIndex || index == hoveredIndex
+        let showsActions = index == hoveredIndex
+
+        return HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(result.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                if !result.snippet.isEmpty {
+                    Text(highlightedSnippet(line: result.snippet, query: query, colors: highlightColors))
+                        .font(.system(size: 12))
+                        .foregroundStyle(isActive ? .primary : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            actionButtons(for: result, at: index, visible: showsActions)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(rowBackground(isActive: isActive))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onSelect(result)
+        }
+        .onContinuousHover { phase in
+            switch phase {
+            case .active:
+                NSCursor.pointingHand.set()
+                hoveredIndex = index
+                selectedIndex = index
+                onHoverResultIndex(index)
+            case .ended:
+                if hoveredIndex == index {
+                    hoveredIndex = nil
+                    hoveredPinIndex = nil
+                    hoveredTrashIndex = nil
+                    onHoverResultIndex(nil)
+                }
+                NSCursor.arrow.set()
+            }
+        }
+    }
+
+    private func rowBackground(isActive: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(isActive ? AnyShapeStyle(.thinMaterial) : AnyShapeStyle(.clear))
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(isActive ? .black.opacity(0.07) : .clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(isActive ? .white.opacity(0.30) : .clear, lineWidth: 1)
+            )
+    }
+
+    private func actionButtons(for result: NoteSearchResult, at index: Int, visible: Bool) -> some View {
+        ZStack {
+            if visible || result.isPinned {
+                HStack(spacing: 4) {
+                    Button {
+                        onTogglePin(result)
+                    } label: {
+                        Image(systemName: result.isPinned ? "pin.fill" : "pin")
+                            .font(.system(size: 11, weight: .semibold))
+                            .offset(y: 2)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 16, height: 16)
+                            .padding(2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(hoveredPinIndex == index ? .white.opacity(0.10) : .clear)
+                            )
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .onHover { hovering in
+                        hoveredPinIndex = hovering ? index : nil
+                    }
+                    .buttonStyle(.plain)
+                    .help(result.isPinned ? "Unpin note (Cmd+Shift+P)" : "Pin note (Cmd+Shift+P)")
+
+                    if visible {
+                        Button {
+                            onDelete(result)
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 16, height: 16)
+                                .padding(2)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                        .fill(hoveredTrashIndex == index ? .white.opacity(0.10) : .clear)
+                                )
+                        }
+                        .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .onHover { hovering in
+                            hoveredTrashIndex = hovering ? index : nil
+                        }
+                        .buttonStyle(.plain)
+                        .help("Delete note (Cmd+D)")
+                    }
+                }
+            }
+        }
+        .frame(width: 40, height: 16, alignment: .trailing)
     }
 
     private func highlightedSnippet(line: String, query: String, colors: [Color]) -> AttributedString {

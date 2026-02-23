@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 struct NoteSearchResult: Identifiable {
     let id: URL
@@ -6,11 +7,13 @@ struct NoteSearchResult: Identifiable {
     let title: String
     let snippet: String
     let modifiedAt: Date
+    let isPinned: Bool
 }
 
 struct DeletedNote {
     let fileURL: URL
     let contents: String
+    let wasPinned: Bool
 }
 
 struct DeletedNoteToast: Identifiable {
@@ -19,6 +22,9 @@ struct DeletedNoteToast: Identifiable {
 }
 
 final class NotesStore: ObservableObject {
+    private static let pinnedXAttrName = "com.buffer.pinned"
+    private static let pinnedXAttrValue = "1".data(using: .utf8) ?? Data([49])
+
     @Published var text: String = "" {
         didSet {
             save()
@@ -28,18 +34,23 @@ final class NotesStore: ObservableObject {
 
     private(set) var lastDeletedNote: DeletedNote?
 
-    private let fileManager = FileManager.default
+    private let fileManager: FileManager
     private let notesDirectoryURL: URL
     private var currentNoteURL: URL
 
-    init() {
-        let appSupportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        notesDirectoryURL = appSupportDir.appendingPathComponent("Buffer", isDirectory: true)
-        currentNoteURL = notesDirectoryURL.appendingPathComponent("\(UUID().uuidString).txt", isDirectory: false)
+    init(fileManager: FileManager = .default, notesDirectoryURL: URL? = nil) {
+        self.fileManager = fileManager
+        if let notesDirectoryURL {
+            self.notesDirectoryURL = notesDirectoryURL
+        } else {
+            let appSupportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            self.notesDirectoryURL = appSupportDir.appendingPathComponent("Buffer", isDirectory: true)
+        }
+        currentNoteURL = self.notesDirectoryURL.appendingPathComponent("\(UUID().uuidString).txt", isDirectory: false)
 
         do {
-            try fileManager.createDirectory(at: notesDirectoryURL, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: self.notesDirectoryURL, withIntermediateDirectories: true)
         } catch {
             print("Failed to create application support directory: \(error)")
         }
@@ -74,8 +85,12 @@ final class NotesStore: ObservableObject {
     }
 
     private func save() {
+        let wasPinned = isPinned(fileURL: currentNoteURL)
         do {
             try text.data(using: .utf8)?.write(to: currentNoteURL, options: .atomic)
+            if wasPinned {
+                _ = setPinned(true, for: currentNoteURL)
+            }
         } catch {
             print("Failed to save notes: \(error)")
         }
@@ -102,6 +117,7 @@ final class NotesStore: ObservableObject {
 
             let lines = contents.components(separatedBy: .newlines)
             let modifiedAt = (try? fileURL.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
+            let pinned = isPinned(fileURL: fileURL)
 
             if normalizedQuery.isEmpty {
                 let firstLine = lines.first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? "Untitled"
@@ -111,7 +127,8 @@ final class NotesStore: ObservableObject {
                         fileURL: fileURL,
                         title: firstLine,
                         snippet: "",
-                        modifiedAt: modifiedAt
+                        modifiedAt: modifiedAt,
+                        isPinned: pinned
                     )
                 )
                 continue
@@ -128,12 +145,32 @@ final class NotesStore: ObservableObject {
                     fileURL: fileURL,
                     title: title,
                     snippet: matchLine,
-                    modifiedAt: modifiedAt
+                    modifiedAt: modifiedAt,
+                    isPinned: pinned
                 )
             )
         }
 
-        return results.sorted(by: { $0.modifiedAt > $1.modifiedAt })
+        return results.sorted { lhs, rhs in
+            if lhs.isPinned != rhs.isPinned {
+                return lhs.isPinned && !rhs.isPinned
+            }
+            if lhs.modifiedAt != rhs.modifiedAt {
+                return lhs.modifiedAt > rhs.modifiedAt
+            }
+            return lhs.fileURL.lastPathComponent < rhs.fileURL.lastPathComponent
+        }
+    }
+
+    func isPinned(_ fileURL: URL) -> Bool {
+        isPinned(fileURL: fileURL)
+    }
+
+    @discardableResult
+    func togglePinned(at fileURL: URL) -> Bool {
+        let next = !isPinned(fileURL: fileURL)
+        _ = setPinned(next, for: fileURL)
+        return next
     }
 
     func openNote(at fileURL: URL) {
@@ -163,6 +200,7 @@ final class NotesStore: ObservableObject {
         let existingContents = text
         let existsOnDisk = fileManager.fileExists(atPath: existingURL.path)
         let hasMeaningfulContent = !existingContents.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let wasPinned = existsOnDisk ? isPinned(fileURL: existingURL) : false
 
         guard existsOnDisk || hasMeaningfulContent else {
             return nil
@@ -190,7 +228,7 @@ final class NotesStore: ObservableObject {
             text = ""
         }
 
-        let deleted = DeletedNote(fileURL: existingURL, contents: existingContents)
+        let deleted = DeletedNote(fileURL: existingURL, contents: existingContents, wasPinned: wasPinned)
         registerDeletion(deleted)
         return deleted
     }
@@ -206,9 +244,10 @@ final class NotesStore: ObservableObject {
         }
 
         let contents = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
+        let wasPinned = isPinned(fileURL: fileURL)
         do {
             try fileManager.removeItem(at: fileURL)
-            let deleted = DeletedNote(fileURL: fileURL, contents: contents)
+            let deleted = DeletedNote(fileURL: fileURL, contents: contents, wasPinned: wasPinned)
             registerDeletion(deleted)
             return deleted
         } catch {
@@ -220,6 +259,9 @@ final class NotesStore: ObservableObject {
     func restoreDeletedNote(_ deleted: DeletedNote) {
         do {
             try deleted.contents.data(using: .utf8)?.write(to: deleted.fileURL, options: .atomic)
+            if deleted.wasPinned {
+                _ = setPinned(true, for: deleted.fileURL)
+            }
             currentNoteURL = deleted.fileURL
             text = deleted.contents
         } catch {
@@ -308,5 +350,44 @@ final class NotesStore: ObservableObject {
         currentNoteURL = notesDirectoryURL.appendingPathComponent("\(UUID().uuidString).txt", isDirectory: false)
         text = saved
         save()
+    }
+
+    private func isPinned(fileURL: URL) -> Bool {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return false
+        }
+        return fileURL.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return false }
+            let size = getxattr(path, Self.pinnedXAttrName, nil, 0, 0, 0)
+            guard size > 0 else {
+                return false
+            }
+            var buffer = [UInt8](repeating: 0, count: Int(size))
+            let readSize = getxattr(path, Self.pinnedXAttrName, &buffer, buffer.count, 0, 0)
+            guard readSize > 0 else {
+                return false
+            }
+            return Data(buffer.prefix(Int(readSize))) == Self.pinnedXAttrValue
+        }
+    }
+
+    @discardableResult
+    private func setPinned(_ pinned: Bool, for fileURL: URL) -> Bool {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return false
+        }
+        return fileURL.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return false }
+            if pinned {
+                return Self.pinnedXAttrValue.withUnsafeBytes { bytes in
+                    guard let baseAddress = bytes.baseAddress else {
+                        return false
+                    }
+                    return setxattr(path, Self.pinnedXAttrName, baseAddress, bytes.count, 0, 0) == 0
+                }
+            }
+            let result = removexattr(path, Self.pinnedXAttrName, 0)
+            return result == 0 || errno == ENOATTR
+        }
     }
 }
