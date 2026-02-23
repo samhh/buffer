@@ -605,7 +605,7 @@ private struct NoteEditorView: View {
     var body: some View {
         ZStack(alignment: .top) {
             Rectangle()
-                .fill(.ultraThinMaterial)
+                .fill(.thickMaterial)
                 .ignoresSafeArea()
             DottedPaperOverlay()
                 .ignoresSafeArea()
