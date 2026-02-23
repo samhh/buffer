@@ -1040,7 +1040,7 @@ private struct SearchOverlayView: View {
                     } label: {
                         Image(systemName: result.isPinned ? "pin.fill" : "pin")
                             .font(.system(size: 11, weight: .semibold))
-                            .offset(y: 2)
+                            .offset(y: 1)
                             .foregroundStyle(.secondary)
                             .frame(width: 16, height: 16)
                             .padding(2)
@@ -1346,6 +1346,7 @@ private final class LineDeleteOnCutTextView: NSTextView {
 
 private final class ListBulletLayoutManager: NSLayoutManager {
     private let indentWidth = (SmartListEditing.indentUnit as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
+    private let markerCenterYOffset: CGFloat = 10
 
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
@@ -1376,10 +1377,10 @@ private final class ListBulletLayoutManager: NSLayoutManager {
             }
             let lineRect = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
             let lineOriginX = origin.x + lineRect.minX
-            let midY = origin.y + lineRect.midY - 1
+            let markerCenterY = origin.y + lineRect.minY + markerCenterYOffset
             for level in 0..<line.depth {
                 let markerCenterX = lineOriginX + (CGFloat(level) * indentWidth) + (indentWidth * 0.5) + 3
-                drawTabMarker(at: NSPoint(x: markerCenterX, y: midY))
+                drawTabMarker(at: NSPoint(x: markerCenterX, y: markerCenterY))
             }
         }
     }
