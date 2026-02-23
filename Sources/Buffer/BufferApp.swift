@@ -44,7 +44,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notesWindowController = windowController
         settingsWindowController = SettingsWindowController(preferences: preferences)
         launchAtLoginManager = LaunchAtLoginManager()
-        launchAtLoginManager?.setEnabled(preferences.launchAtLoginEnabled)
 
         statusBarController = StatusBarController(
             onToggle: { [weak self] in
