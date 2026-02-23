@@ -18,7 +18,7 @@ Buffer will start backgrounded in the menu bar. Notes are stored in plaintext at
 
 - Toggle (configurable): `Opt+n`
 - Create new note: `Cmd+n`
-- Search: `Cmd+f`
+- Search all notes: `Cmd+p`
 - Settings: `Cmd+,`
 
 ## Purpose

@@ -36,7 +36,7 @@ final class StatusBarController: NSObject {
         let newItem = NSMenuItem(title: "New Note", action: #selector(newNoteFromMenu), keyEquivalent: "n")
         newItem.keyEquivalentModifierMask = [.command]
         menu.addItem(newItem)
-        let searchItem = NSMenuItem(title: "Search Notes", action: #selector(searchFromMenu), keyEquivalent: "f")
+        let searchItem = NSMenuItem(title: "Search Notes", action: #selector(searchFromMenu), keyEquivalent: "p")
         searchItem.keyEquivalentModifierMask = [.command]
         menu.addItem(searchItem)
         menu.addItem(NSMenuItem(title: "Toggle Notes", action: #selector(toggleFromMenu), keyEquivalent: ""))

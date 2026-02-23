@@ -98,8 +98,8 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
                 return nil
             }
 
-            let isCommandF = event.keyCode == 3 && modifiers.contains(.command)
-            if isCommandF {
+            let isCommandP = event.keyCode == 35 && modifiers.contains(.command)
+            if isCommandP {
                 self.showSearch()
                 return nil
             }
@@ -185,7 +185,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     private func handleSearchKey(_ event: NSEvent) -> NSEvent? {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if event.keyCode == 3, modifiers.contains(.command) {
+        if event.keyCode == 35, modifiers.contains(.command) {
             hideSearch(refocusEditor: true)
             return nil
         }
