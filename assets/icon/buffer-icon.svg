@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Buffer app icon">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#12051f"/>
+      <stop offset="45%" stop-color="#2a0a46"/>
+      <stop offset="74%" stop-color="#10254f"/>
+      <stop offset="100%" stop-color="#4a1474"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="22%" cy="18%" r="78%">
+      <stop offset="0%" stop-color="#f5d0fe" stop-opacity="0.62"/>
+      <stop offset="100%" stop-color="#f5d0fe" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="azureWhisper" cx="78%" cy="68%" r="48%">
+      <stop offset="0%" stop-color="#0b2f67" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#0b2f67" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="paperDots" x="0" y="0" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="14" cy="14" r="2.6" fill="#ffffff" fill-opacity="0.28"/>
+    </pattern>
+  </defs>
+
+  <rect x="44" y="44" width="936" height="936" rx="212" fill="url(#bg)"/>
+  <rect x="44" y="44" width="936" height="936" rx="212" fill="url(#azureWhisper)"/>
+  <rect x="44" y="44" width="936" height="936" rx="212" fill="url(#paperDots)"/>
+  <rect x="44" y="44" width="936" height="936" rx="212" fill="url(#glow)"/>
+</svg>

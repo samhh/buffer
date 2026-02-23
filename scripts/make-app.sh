@@ -7,6 +7,7 @@ BUNDLE_ID="com.samhh.buffer"
 VERSION="0.1.0"
 INSTALL=false
 INSTALL_DIR="/Applications"
+ICON_PATH="assets/icon/Buffer.icns"
 
 usage() {
   cat <<USAGE
@@ -18,6 +19,7 @@ Options:
   --output <dir>       Output directory for the app bundle (default: dist)
   --bundle-id <id>     CFBundleIdentifier value (default: com.samhh.buffer)
   --version <version>  App version (default: 0.1.0)
+  --icon <path>        Path to .icns app icon (default: assets/icon/Buffer.icns)
   --install            Copy the built app to /Applications after bundling
   --install-dir <dir>  Install destination (default: /Applications)
   -h, --help           Show this help
@@ -36,6 +38,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --version)
       VERSION="$2"
+      shift 2
+      ;;
+    --icon)
+      ICON_PATH="$2"
       shift 2
       ;;
     --install)
@@ -70,12 +76,17 @@ fi
 APP_DIR="$OUTPUT_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
+RESOURCES_DIR="$CONTENTS_DIR/Resources"
 PLIST_PATH="$CONTENTS_DIR/Info.plist"
 
 rm -rf "$APP_DIR"
-mkdir -p "$MACOS_DIR"
+mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$BIN_PATH" "$MACOS_DIR/$APP_NAME"
 chmod +x "$MACOS_DIR/$APP_NAME"
+
+if [[ -f "$ICON_PATH" ]]; then
+  cp "$ICON_PATH" "$RESOURCES_DIR/$APP_NAME.icns"
+fi
 
 cat > "$PLIST_PATH" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -90,6 +101,8 @@ cat > "$PLIST_PATH" <<PLIST
   <string>$BUNDLE_ID</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
+  <key>CFBundleIconFile</key>
+  <string>$APP_NAME</string>
   <key>CFBundleName</key>
   <string>$APP_NAME</string>
   <key>CFBundlePackageType</key>
