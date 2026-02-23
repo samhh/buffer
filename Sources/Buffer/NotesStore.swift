@@ -185,6 +185,26 @@ final class NotesStore: ObservableObject {
         return DeletedNote(fileURL: existingURL, contents: existingContents)
     }
 
+    @discardableResult
+    func deleteNote(at fileURL: URL) -> DeletedNote? {
+        if fileURL == currentNoteURL {
+            return deleteCurrentNote()
+        }
+
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+
+        let contents = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
+        do {
+            try fileManager.removeItem(at: fileURL)
+            return DeletedNote(fileURL: fileURL, contents: contents)
+        } catch {
+            print("Failed to delete note: \(error)")
+            return nil
+        }
+    }
+
     func restoreDeletedNote(_ deleted: DeletedNote) {
         do {
             try deleted.contents.data(using: .utf8)?.write(to: deleted.fileURL, options: .atomic)

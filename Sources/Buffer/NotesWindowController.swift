@@ -27,7 +27,8 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             onInNoteFindQueryChange: { _ in },
             onCloseSearch: {},
             onCloseInNoteFind: {},
-            onSelectResult: { _ in }
+            onSelectResult: { _ in },
+            onHoverSearchResultIndex: { _ in }
         )
         let hostingView = NSHostingView(rootView: contentView)
 
@@ -63,6 +64,12 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             },
             onSelectResult: { [weak self] result in
                 self?.openSearchResult(result)
+            },
+            onHoverSearchResultIndex: { [weak self] index in
+                guard let self,
+                      let index,
+                      self.searchState.results.indices.contains(index) else { return }
+                self.searchState.selectedIndex = index
             }
         )
         hostingView.rootView = rootView
@@ -231,6 +238,10 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             hideSearch(refocusEditor: true)
             return nil
         }
+        if event.keyCode == 2, modifiers.contains(.command) {
+            deleteSelectedSearchResult()
+            return nil
+        }
 
         switch event.keyCode {
         case 53: // Escape
@@ -319,6 +330,24 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         store.openNote(at: result.fileURL)
         hideSearch()
         requestEditorFocus()
+    }
+
+    private func deleteSelectedSearchResult() {
+        guard searchState.results.indices.contains(searchState.selectedIndex) else {
+            return
+        }
+        let selectedResult = searchState.results[searchState.selectedIndex]
+        guard let deleted = store.deleteNote(at: selectedResult.fileURL) else {
+            return
+        }
+
+        pendingDeletedNote = deleted
+        searchState.results = store.searchNotes(query: searchState.query)
+        if searchState.results.isEmpty {
+            searchState.selectedIndex = 0
+        } else {
+            searchState.selectedIndex = min(searchState.selectedIndex, searchState.results.count - 1)
+        }
     }
 
     private func updateSearch(query: String) {
@@ -483,6 +512,7 @@ private struct NoteEditorView: View {
     let onCloseSearch: () -> Void
     let onCloseInNoteFind: () -> Void
     let onSelectResult: (NoteSearchResult) -> Void
+    let onHoverSearchResultIndex: (Int?) -> Void
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -510,10 +540,14 @@ private struct NoteEditorView: View {
                         set: { searchState.query = $0 }
                     ),
                     results: searchState.results,
-                    selectedIndex: searchState.selectedIndex,
+                    selectedIndex: Binding(
+                        get: { searchState.selectedIndex },
+                        set: { searchState.selectedIndex = $0 }
+                    ),
                     highlightColors: searchState.highlightColors,
                     onClose: onCloseSearch,
-                    onSelect: onSelectResult
+                    onSelect: onSelectResult,
+                    onHoverResultIndex: onHoverSearchResultIndex
                 )
                 .padding(.top, 8)
                 .padding(.horizontal, 14)
@@ -604,10 +638,11 @@ private struct InNoteFindBarView: View {
 private struct SearchOverlayView: View {
     @Binding var query: String
     let results: [NoteSearchResult]
-    let selectedIndex: Int
+    @Binding var selectedIndex: Int
     let highlightColors: [Color]
     let onClose: () -> Void
     let onSelect: (NoteSearchResult) -> Void
+    let onHoverResultIndex: (Int?) -> Void
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -676,6 +711,9 @@ private struct SearchOverlayView: View {
                                             .strokeBorder(index == selectedIndex ? .white.opacity(0.30) : .clear, lineWidth: 1)
                                     )
                             )
+                        }
+                        .onHover { hovering in
+                            onHoverResultIndex(hovering ? index : nil)
                         }
                         .buttonStyle(.plain)
                     }
