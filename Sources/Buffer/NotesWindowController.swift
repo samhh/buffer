@@ -141,11 +141,26 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             }
             if isCommandZ {
                 if let textView = self.editorBridge.textView {
+                    let preUndoCaret = textView.selectedRange().location
+                    let preUndoLength = (textView.string as NSString).length
                     textView.undoManager?.undo()
+                    let postUndoLength = (textView.string as NSString).length
+                    let lengthDelta = postUndoLength - preUndoLength
                     let selection = textView.selectedRange()
                     if selection.length > 0 {
-                        let clamped = min(selection.location, (textView.string as NSString).length)
-                        textView.setSelectedRange(NSRange(location: clamped, length: 0))
+                        let rangeStart = selection.location
+                        let rangeEnd = selection.location + selection.length
+                        let correction: Int
+                        if lengthDelta < 0 {
+                            correction = -2
+                        } else if lengthDelta > 0 {
+                            correction = 2
+                        } else {
+                            correction = 0
+                        }
+                        let target = preUndoCaret + correction
+                        let collapsed = min(max(target, rangeStart), rangeEnd)
+                        textView.setSelectedRange(NSRange(location: collapsed, length: 0))
                     }
                 }
                 return nil
