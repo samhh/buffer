@@ -134,9 +134,44 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             }
 
             let isCommandZ = event.keyCode == 6 && modifiers.contains(.command) && !modifiers.contains(.shift)
+            let isCommandShiftZ = event.keyCode == 6 && modifiers.contains(.command) && modifiers.contains(.shift)
             if isCommandZ, self.store.deletedNoteToast != nil {
                 self.undoLastDeletedNote()
                 self.requestEditorFocus()
+                return nil
+            }
+            if isCommandShiftZ {
+                if let textView = self.editorBridge.textView {
+                    let preRedoCaret = textView.selectedRange().location
+                    let preRedoLength = (textView.string as NSString).length
+                    textView.undoManager?.redo()
+                    let postRedoLength = (textView.string as NSString).length
+                    let lengthDelta = postRedoLength - preRedoLength
+                    let selection = textView.selectedRange()
+                    if selection.length > 0 {
+                        let rangeStart = selection.location
+                        let rangeEnd = selection.location + selection.length
+                        let text = textView.string as NSString
+                        let selectionEndsWithNewline = rangeEnd > rangeStart
+                            && rangeEnd - 1 < text.length
+                            && {
+                                let ch = text.character(at: rangeEnd - 1)
+                                return ch == 10 || ch == 13
+                            }()
+                        let maxCaret = selectionEndsWithNewline ? max(rangeStart, rangeEnd - 1) : rangeEnd
+                        let correction: Int
+                        if lengthDelta < 0 {
+                            correction = -2
+                        } else if lengthDelta > 0 {
+                            correction = 2
+                        } else {
+                            correction = 0
+                        }
+                        let target = preRedoCaret + correction
+                        let collapsed = min(max(target, rangeStart), maxCaret)
+                        textView.setSelectedRange(NSRange(location: collapsed, length: 0))
+                    }
+                }
                 return nil
             }
             if isCommandZ {
@@ -150,6 +185,14 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
                     if selection.length > 0 {
                         let rangeStart = selection.location
                         let rangeEnd = selection.location + selection.length
+                        let text = textView.string as NSString
+                        let selectionEndsWithNewline = rangeEnd > rangeStart
+                            && rangeEnd - 1 < text.length
+                            && {
+                                let ch = text.character(at: rangeEnd - 1)
+                                return ch == 10 || ch == 13
+                            }()
+                        let maxCaret = selectionEndsWithNewline ? max(rangeStart, rangeEnd - 1) : rangeEnd
                         let correction: Int
                         if lengthDelta < 0 {
                             correction = -2
@@ -159,7 +202,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
                             correction = 0
                         }
                         let target = preUndoCaret + correction
-                        let collapsed = min(max(target, rangeStart), rangeEnd)
+                        let collapsed = min(max(target, rangeStart), maxCaret)
                         textView.setSelectedRange(NSRange(location: collapsed, length: 0))
                     }
                 }
