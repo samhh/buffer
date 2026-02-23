@@ -644,6 +644,7 @@ private struct SearchOverlayView: View {
     let onSelect: (NoteSearchResult) -> Void
     let onHoverResultIndex: (Int?) -> Void
     @FocusState private var searchFocused: Bool
+    @State private var hoveredIndex: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -682,6 +683,7 @@ private struct SearchOverlayView: View {
             ScrollView {
                 VStack(spacing: 4) {
                     ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
+                        let isActive = index == selectedIndex || index == hoveredIndex
                         Button {
                             onSelect(result)
                         } label: {
@@ -692,7 +694,7 @@ private struct SearchOverlayView: View {
                                 if !result.snippet.isEmpty {
                                     Text(highlightedSnippet(line: result.snippet, query: query, colors: highlightColors))
                                         .font(.system(size: 12))
-                                        .foregroundStyle(index == selectedIndex ? .primary : .secondary)
+                                        .foregroundStyle(isActive ? .primary : .secondary)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
@@ -701,23 +703,38 @@ private struct SearchOverlayView: View {
                             .padding(.vertical, 7)
                             .background(
                                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(index == selectedIndex ? AnyShapeStyle(.thinMaterial) : AnyShapeStyle(.clear))
+                                    .fill(isActive ? AnyShapeStyle(.thinMaterial) : AnyShapeStyle(.clear))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                            .fill(index == selectedIndex ? .black.opacity(0.07) : .clear)
+                                            .fill(isActive ? .black.opacity(0.07) : .clear)
                                     )
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                            .strokeBorder(index == selectedIndex ? .white.opacity(0.30) : .clear, lineWidth: 1)
+                                            .strokeBorder(isActive ? .white.opacity(0.30) : .clear, lineWidth: 1)
                                     )
                             )
                         }
-                        .onHover { hovering in
-                            onHoverResultIndex(hovering ? index : nil)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active:
+                                NSCursor.pointingHand.set()
+                                hoveredIndex = index
+                                selectedIndex = index
+                                onHoverResultIndex(index)
+                            case .ended:
+                                if hoveredIndex == index {
+                                    hoveredIndex = nil
+                                    onHoverResultIndex(nil)
+                                }
+                                NSCursor.arrow.set()
+                            }
                         }
                         .buttonStyle(.plain)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 220)
         }
