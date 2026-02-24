@@ -785,6 +785,7 @@ private struct NoteEditorView: View {
 }
 
 private struct DeletedNoteToastView: View {
+    @Environment(\.colorScheme) private var colorScheme
     let onUndo: () -> Void
     let onDismiss: () -> Void
 
@@ -831,20 +832,25 @@ private struct DeletedNoteToastView: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.thinMaterial)
+                .fill(chromeMaterial)
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(.black.opacity(0.06))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(.white.opacity(0.17), lineWidth: 1)
+                        .strokeBorder(chromeBorderColor, lineWidth: 1)
                 )
         )
+    }
+
+    private var chromeMaterial: Material {
+        colorScheme == .dark ? .thinMaterial : .regularMaterial
+    }
+
+    private var chromeBorderColor: Color {
+        colorScheme == .dark ? .white.opacity(0.14) : .black.opacity(0.12)
     }
 }
 
 private struct InNoteFindBarView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var query: String
     let currentIndex: Int
     let totalCount: Int
@@ -873,14 +879,10 @@ private struct InNoteFindBarView: View {
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.thinMaterial)
+                .fill(chromeMaterial)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(.black.opacity(0.06))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(.white.opacity(0.17), lineWidth: 1)
+                        .strokeBorder(chromeBorderColor, lineWidth: 1)
                 )
         )
         .onAppear {
@@ -894,9 +896,18 @@ private struct InNoteFindBarView: View {
         guard totalCount > 0 else { return "0" }
         return "\(currentIndex)/\(totalCount)"
     }
+
+    private var chromeMaterial: Material {
+        colorScheme == .dark ? .thinMaterial : .regularMaterial
+    }
+
+    private var chromeBorderColor: Color {
+        colorScheme == .dark ? .white.opacity(0.14) : .black.opacity(0.12)
+    }
 }
 
 private struct SearchOverlayView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var query: String
     let results: [NoteSearchResult]
     @Binding var selectedIndex: Int
@@ -934,14 +945,10 @@ private struct SearchOverlayView: View {
             .padding(.vertical, 7)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(.thinMaterial)
+                    .fill(chromeMaterial)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.black.opacity(0.06))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(.white.opacity(0.17), lineWidth: 1)
+                            .strokeBorder(chromeBorderColor, lineWidth: 1)
                     )
             )
 
@@ -958,10 +965,10 @@ private struct SearchOverlayView: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.thinMaterial)
+                .fill(chromeMaterial)
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+                        .strokeBorder(chromeBorderColor, lineWidth: 1)
                 )
         )
         .onAppear {
@@ -1020,15 +1027,23 @@ private struct SearchOverlayView: View {
 
     private func rowBackground(isActive: Bool) -> some View {
         RoundedRectangle(cornerRadius: 5, style: .continuous)
-            .fill(isActive ? AnyShapeStyle(.thinMaterial) : AnyShapeStyle(.clear))
+            .fill(isActive ? AnyShapeStyle(chromeMaterial) : AnyShapeStyle(.clear))
             .overlay(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isActive ? .black.opacity(0.07) : .clear)
+                    .strokeBorder(isActive ? activeRowBorderColor : .clear, lineWidth: 1)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .strokeBorder(isActive ? .white.opacity(0.30) : .clear, lineWidth: 1)
-            )
+    }
+
+    private var chromeMaterial: Material {
+        colorScheme == .dark ? .thinMaterial : .regularMaterial
+    }
+
+    private var chromeBorderColor: Color {
+        colorScheme == .dark ? .white.opacity(0.14) : .black.opacity(0.12)
+    }
+
+    private var activeRowBorderColor: Color {
+        colorScheme == .dark ? .white.opacity(0.22) : .black.opacity(0.18)
     }
 
     private func actionButtons(for result: NoteSearchResult, at index: Int, visible: Bool) -> some View {

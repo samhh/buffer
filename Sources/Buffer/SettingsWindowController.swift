@@ -86,6 +86,7 @@ private struct SettingsView: View {
 }
 
 private struct ShortcutRecorderField: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var preferences: PreferencesStore
     @State private var isRecording = false
     @State private var monitor: Any?
@@ -105,15 +106,11 @@ private struct ShortcutRecorderField: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(.thinMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.black.opacity(0.04))
-                    )
+                    .fill(chromeMaterial)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(isRecording ? Color.accentColor.opacity(0.95) : .white.opacity(0.2), lineWidth: 1)
+                    .strokeBorder(isRecording ? Color.accentColor.opacity(0.95) : chromeBorderColor, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -157,6 +154,14 @@ private struct ShortcutRecorderField: View {
             self.monitor = nil
         }
     }
+
+    private var chromeMaterial: Material {
+        colorScheme == .dark ? .thinMaterial : .regularMaterial
+    }
+
+    private var chromeBorderColor: Color {
+        colorScheme == .dark ? .white.opacity(0.14) : .black.opacity(0.12)
+    }
 }
 
 private struct SettingsSection<Content: View>: View {
@@ -175,6 +180,7 @@ private struct SettingsSection<Content: View>: View {
 }
 
 private struct SettingsCard<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -183,12 +189,20 @@ private struct SettingsCard<Content: View>: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.black.opacity(0.04))
+                .fill(chromeMaterial)
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+                        .strokeBorder(chromeBorderColor, lineWidth: 1)
                 )
         )
+    }
+
+    private var chromeMaterial: Material {
+        colorScheme == .dark ? .thinMaterial : .regularMaterial
+    }
+
+    private var chromeBorderColor: Color {
+        colorScheme == .dark ? .white.opacity(0.14) : .black.opacity(0.12)
     }
 }
 
