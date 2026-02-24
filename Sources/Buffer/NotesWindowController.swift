@@ -276,6 +276,10 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         }
         searchState.highlightColors = NoteSearchState.mochaAccentColors.shuffled()
         searchState.isPresented = true
+        if let linkAwareTextView = editorBridge.textView as? LineDeleteOnCutTextView {
+            linkAwareTextView.searchOverlayPresented = true
+            linkAwareTextView.window?.invalidateCursorRects(for: linkAwareTextView)
+        }
         searchState.query = ""
         searchState.selectedIndex = 0
         searchState.results = store.searchNotes(query: "")
@@ -372,6 +376,10 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     private func hideSearch(refocusEditor: Bool) {
         searchState.isPresented = false
+        if let linkAwareTextView = editorBridge.textView as? LineDeleteOnCutTextView {
+            linkAwareTextView.searchOverlayPresented = false
+            linkAwareTextView.window?.invalidateCursorRects(for: linkAwareTextView)
+        }
         searchState.query = ""
         searchState.results = []
         searchState.selectedIndex = 0
@@ -1001,6 +1009,7 @@ private struct SearchOverlayView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(rowBackground(isActive: isActive))
+        .textSelection(.disabled)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture {
@@ -1298,6 +1307,13 @@ private final class LineDeleteOnCutTextView: NSTextView {
     private var linkTrackingArea: NSTrackingArea?
     private var rememberedLinkRangeForVerticalNavigation: NSRange?
     private var expandRememberedLinkForCurrentVerticalMove = false
+    var searchOverlayPresented = false {
+        didSet {
+            guard searchOverlayPresented != oldValue else { return }
+            window?.invalidateCursorRects(for: self)
+            updateTrackingAreas()
+        }
+    }
 
     func refreshLinkSpans() {
         linkSpans = LinkShrink.detectLinks(in: string as NSString)
@@ -1448,12 +1464,29 @@ private final class LineDeleteOnCutTextView: NSTextView {
         super.updateTrackingAreas()
     }
 
+    override func resetCursorRects() {
+        if searchOverlayPresented {
+            discardCursorRects()
+            addCursorRect(bounds, cursor: .arrow)
+            return
+        }
+        super.resetCursorRects()
+    }
+
     override func mouseMoved(with event: NSEvent) {
+        guard !searchOverlayPresented else {
+            NSCursor.arrow.set()
+            return
+        }
         super.mouseMoved(with: event)
         updateCursor(for: event)
     }
 
     override func flagsChanged(with event: NSEvent) {
+        guard !searchOverlayPresented else {
+            NSCursor.arrow.set()
+            return
+        }
         super.flagsChanged(with: event)
         updateCursorForCurrentLocation(with: event.modifierFlags)
     }
@@ -1548,6 +1581,7 @@ private final class LineDeleteOnCutTextView: NSTextView {
     }
 
     private func updateCursor(for event: NSEvent) {
+        guard !searchOverlayPresented else { return }
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let point = convert(event.locationInWindow, from: nil)
         let shouldShowPointer = modifiers.contains(.command) && linkSpan(at: point) != nil
@@ -1555,6 +1589,7 @@ private final class LineDeleteOnCutTextView: NSTextView {
     }
 
     private func updateCursorForCurrentLocation(with modifiers: NSEvent.ModifierFlags? = nil) {
+        guard !searchOverlayPresented else { return }
         guard let window else { return }
         let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
         let effectiveModifiers = modifiers?.intersection(.deviceIndependentFlagsMask) ?? NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
