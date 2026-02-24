@@ -33,6 +33,7 @@ final class NotesStore: ObservableObject {
     @Published var deletedNoteToast: DeletedNoteToast?
 
     private(set) var lastDeletedNote: DeletedNote?
+    var currentNoteFileURL: URL { currentNoteURL }
 
     private let fileManager: FileManager
     private let notesDirectoryURL: URL

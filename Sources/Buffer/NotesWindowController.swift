@@ -281,8 +281,8 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             linkAwareTextView.window?.invalidateCursorRects(for: linkAwareTextView)
         }
         searchState.query = ""
-        searchState.selectedIndex = 0
         searchState.results = store.searchNotes(query: "")
+        selectCurrentNoteSearchResultOrFallback()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -477,10 +477,20 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     private func updateSearch(query: String) {
         searchState.results = store.searchNotes(query: query)
+        selectCurrentNoteSearchResultOrFallback()
+    }
+
+    private func selectCurrentNoteSearchResultOrFallback() {
         if searchState.results.isEmpty {
             searchState.selectedIndex = 0
             return
         }
+
+        if let currentIndex = searchState.results.firstIndex(where: { $0.fileURL == store.currentNoteFileURL }) {
+            searchState.selectedIndex = currentIndex
+            return
+        }
+
         searchState.selectedIndex = min(searchState.selectedIndex, searchState.results.count - 1)
     }
 
