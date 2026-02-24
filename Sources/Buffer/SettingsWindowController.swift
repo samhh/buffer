@@ -9,7 +9,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 320),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -19,12 +19,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.level = .floating
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        let toolbar = NSToolbar(identifier: "BufferSettingsToolbar")
-        toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = false
-        window.toolbar = toolbar
-        window.toolbarStyle = .unified
+        window.collectionBehavior = [.fullScreenAuxiliary]
+        window.backgroundColor = .clear
+        window.isOpaque = false
         window.center()
         window.contentView = hostingView
 
@@ -41,32 +38,31 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         guard let window else { return }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
     }
 }
 
 private struct SettingsView: View {
-    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var preferences: PreferencesStore
 
     var body: some View {
         ZStack {
             Rectangle()
                 .fill(.regularMaterial)
-                .ignoresSafeArea()
-            Rectangle()
-                .fill(colorScheme == .dark ? .black.opacity(0.18) : .white.opacity(0.05))
+                .overlay(Color(nsColor: .windowBackgroundColor).opacity(0.25))
                 .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 18) {
                 SettingsSection(title: "General") {
                     SettingsCard {
                         SettingsRow(title: "Toggle hotkey") {
                             ShortcutRecorderField(preferences: preferences)
                                 .frame(width: 190)
                         }
+                        SettingsDivider()
                         SettingsRow(title: "Appearance") {
                             AppearanceModePicker(selection: $preferences.appearanceMode)
-                                .frame(width: 190)
+                                .frame(width: 190, alignment: .trailing)
                         }
                     }
                 }
@@ -79,7 +75,6 @@ private struct SettingsView: View {
                             }
                             .toggleStyle(.switch)
                             .labelsHidden()
-                            .scaleEffect(0.88)
                         }
                     }
                 }
@@ -99,32 +94,13 @@ private struct AppearanceModePicker: View {
     @Binding var selection: AppearanceMode
 
     var body: some View {
-        HStack(spacing: 5) {
+        Picker("Appearance", selection: $selection) {
             ForEach(AppearanceMode.allCases) { mode in
-                Button {
-                    selection = mode
-                } label: {
-                    Text(mode.title)
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                }
-                .buttonStyle(.plain)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(selection == mode ? Color.accentColor.opacity(0.22) : Color.clear)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(selection == mode ? Color.accentColor.opacity(0.45) : .white.opacity(0.10), lineWidth: 1)
-                )
+                Text(mode.title).tag(mode)
             }
         }
-        .padding(4)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.86))
-        )
+        .labelsHidden()
+        .pickerStyle(.segmented)
     }
 }
 
@@ -149,7 +125,7 @@ private struct ShortcutRecorderField: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(chromeMaterial)
+                    .fill(.thickMaterial)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -198,10 +174,6 @@ private struct ShortcutRecorderField: View {
         }
     }
 
-    private var chromeMaterial: Material {
-        colorScheme == .dark ? .ultraThinMaterial : .thinMaterial
-    }
-
     private var chromeBorderColor: Color {
         colorScheme == .dark ? .white.opacity(0.14) : .black.opacity(0.12)
     }
@@ -246,6 +218,12 @@ private struct SettingsCard<Content: View>: View {
 
     private var chromeBorderColor: Color {
         colorScheme == .dark ? .white.opacity(0.20) : .black.opacity(0.12)
+    }
+}
+
+private struct SettingsDivider: View {
+    var body: some View {
+        Divider()
     }
 }
 
