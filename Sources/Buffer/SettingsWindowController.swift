@@ -9,13 +9,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 320),
-            styleMask: [.titled, .closable],
+            styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
 
         window.title = "Buffer Settings"
         window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -44,11 +45,16 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 }
 
 private struct SettingsView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var preferences: PreferencesStore
 
     var body: some View {
         ZStack {
-            Color(nsColor: .windowBackgroundColor)
+            Rectangle()
+                .fill(.regularMaterial)
+                .ignoresSafeArea()
+            Rectangle()
+                .fill(colorScheme == .dark ? .black.opacity(0.18) : .white.opacity(0.05))
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 26) {
@@ -117,7 +123,7 @@ private struct AppearanceModePicker: View {
         .padding(4)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.black.opacity(0.06))
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.86))
         )
     }
 }
@@ -193,7 +199,7 @@ private struct ShortcutRecorderField: View {
     }
 
     private var chromeMaterial: Material {
-        colorScheme == .dark ? .thinMaterial : .regularMaterial
+        colorScheme == .dark ? .ultraThinMaterial : .thinMaterial
     }
 
     private var chromeBorderColor: Color {
@@ -235,11 +241,11 @@ private struct SettingsCard<Content: View>: View {
     }
 
     private var chromeMaterial: Material {
-        colorScheme == .dark ? .thinMaterial : .regularMaterial
+        colorScheme == .dark ? .thickMaterial : .regularMaterial
     }
 
     private var chromeBorderColor: Color {
-        colorScheme == .dark ? .white.opacity(0.14) : .black.opacity(0.12)
+        colorScheme == .dark ? .white.opacity(0.20) : .black.opacity(0.12)
     }
 }
 
