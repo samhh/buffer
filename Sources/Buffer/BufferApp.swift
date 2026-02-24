@@ -79,6 +79,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.launchAtLoginManager?.setEnabled(enabled)
             }
             .store(in: &cancellables)
+
+        preferences.$appearanceMode
+            .sink { [weak self] mode in
+                self?.applyAppearance(mode)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func applyAppearance(_ mode: AppearanceMode) {
+        switch mode {
+        case .system:
+            NSApp.appearance = nil
+        case .light:
+            NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
     }
 
     private func registerHotKey(keyCode: UInt32, modifiers: UInt32) {

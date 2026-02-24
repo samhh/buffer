@@ -8,6 +8,25 @@ struct HotKeyOption: Identifiable {
     let label: String
 }
 
+enum AppearanceMode: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system:
+            return "System"
+        case .light:
+            return "Light"
+        case .dark:
+            return "Dark"
+        }
+    }
+}
+
 enum HotKeyCatalog {
     static let options: [HotKeyOption] = [
         HotKeyOption(id: 49, keyCode: 49, label: "Space"),
@@ -55,6 +74,9 @@ final class PreferencesStore: ObservableObject {
     @Published var launchAtLoginEnabled: Bool {
         didSet { persist() }
     }
+    @Published var appearanceMode: AppearanceMode {
+        didSet { persist() }
+    }
 
     private let defaults = UserDefaults.standard
 
@@ -64,6 +86,7 @@ final class PreferencesStore: ObservableObject {
         hotKeyKeyCode = UInt32(defaults.integer(forKey: Keys.hotKeyCode))
         hotKeyModifiers = UInt32(defaults.integer(forKey: Keys.hotKeyModifiers))
         launchAtLoginEnabled = defaults.object(forKey: Keys.launchAtLoginEnabled) as? Bool ?? false
+        appearanceMode = AppearanceMode(rawValue: defaults.string(forKey: Keys.appearanceMode) ?? "") ?? .system
 
         if hotKeyKeyCode == 0 && hotKeyModifiers == 0 {
             hotKeyKeyCode = defaultKeyCode
@@ -109,11 +132,13 @@ final class PreferencesStore: ObservableObject {
         defaults.set(Int(hotKeyKeyCode), forKey: Keys.hotKeyCode)
         defaults.set(Int(hotKeyModifiers), forKey: Keys.hotKeyModifiers)
         defaults.set(launchAtLoginEnabled, forKey: Keys.launchAtLoginEnabled)
+        defaults.set(appearanceMode.rawValue, forKey: Keys.appearanceMode)
     }
 
     private enum Keys {
         static let hotKeyCode = "preferences.hotkey.keycode"
         static let hotKeyModifiers = "preferences.hotkey.modifiers"
         static let launchAtLoginEnabled = "preferences.launchAtLoginEnabled"
+        static let appearanceMode = "preferences.appearanceMode"
     }
 }

@@ -58,6 +58,10 @@ private struct SettingsView: View {
                             ShortcutRecorderField(preferences: preferences)
                                 .frame(width: 190)
                         }
+                        SettingsRow(title: "Appearance") {
+                            AppearanceModePicker(selection: $preferences.appearanceMode)
+                                .frame(width: 190)
+                        }
                     }
                 }
 
@@ -82,6 +86,39 @@ private struct SettingsView: View {
             .padding(.bottom, 12)
         }
         .frame(width: 460, height: 320)
+    }
+}
+
+private struct AppearanceModePicker: View {
+    @Binding var selection: AppearanceMode
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(AppearanceMode.allCases) { mode in
+                Button {
+                    selection = mode
+                } label: {
+                    Text(mode.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.plain)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(selection == mode ? Color.accentColor.opacity(0.22) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(selection == mode ? Color.accentColor.opacity(0.45) : .white.opacity(0.10), lineWidth: 1)
+                )
+            }
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.black.opacity(0.06))
+        )
     }
 }
 
