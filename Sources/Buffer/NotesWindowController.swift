@@ -94,7 +94,8 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         hostingView.rootView = rootView
 
         window.isReleasedWhenClosed = false
-        window.level = .floating
+        // Keep Buffer above utility panels from other menu bar apps (for example Raycast Notes).
+        window.level = .statusBar
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
@@ -254,16 +255,14 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        bringToFront()
         updateWindowControlsVisibility()
     }
 
     func createNewNoteAndShow() {
         store.createNewNote()
         if !window.isVisible {
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            bringToFront()
             updateWindowControlsVisibility()
         }
         requestEditorFocus()
@@ -271,8 +270,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     func showSearch() {
         if !window.isVisible {
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            bringToFront()
         }
         searchState.highlightColors = NoteSearchState.mochaAccentColors.shuffled()
         searchState.isPresented = true
@@ -390,8 +388,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     private func showInNoteFind() {
         if !window.isVisible {
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            bringToFront()
         }
 
         if inNoteFindState.isPresented {
@@ -411,6 +408,12 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         if refocusEditor {
             requestEditorFocus()
         }
+    }
+
+    private func bringToFront() {
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
     }
 
     private func openSearchResult(_ result: NoteSearchResult) {
