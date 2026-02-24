@@ -8,7 +8,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     private let inNoteFindState = InNoteFindState()
     private let editorState = EditorFocusState()
     private let editorBridge = EditorBridge()
-    private let window: NSWindow
+    private let window: NSPanel
     private var keyMonitor: Any?
     private var mouseMoveMonitor: Any?
     private var didResignActiveObserver: NSObjectProtocol?
@@ -35,9 +35,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         )
         let hostingView = NSHostingView(rootView: contentView)
 
-        window = NSWindow(
+        window = NotesPanel(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -105,6 +105,8 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         window.backgroundColor = .clear
         window.hasShadow = true
         window.acceptsMouseMovedEvents = true
+        window.hidesOnDeactivate = false
+        window.animationBehavior = .none
         window.delegate = self
         window.contentView = hostingView
         window.setFrameAutosaveName("BufferMainWindow")
@@ -411,7 +413,6 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     }
 
     private func bringToFront() {
-        NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
     }
@@ -592,6 +593,11 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         editorState.focusToken += 1
     }
 
+}
+
+private final class NotesPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
 }
 
 @MainActor

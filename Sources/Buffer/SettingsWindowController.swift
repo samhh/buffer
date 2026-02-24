@@ -18,7 +18,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
-        window.level = .floating
+        window.level = .statusBar
+        window.animationBehavior = .none
         window.collectionBehavior = [.fullScreenAuxiliary]
         window.backgroundColor = .clear
         window.isOpaque = false
