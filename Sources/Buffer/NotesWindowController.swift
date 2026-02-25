@@ -285,6 +285,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         }
         searchState.highlightColors = NoteSearchState.mochaAccentColors.shuffled()
         searchState.isPresented = true
+        searchState.hasTypedQueryInSession = false
         searchState.hoverSelectionEnabled = true
         if let linkAwareTextView = editorBridge.textView as? LineDeleteOnCutTextView {
             linkAwareTextView.searchOverlayPresented = true
@@ -392,6 +393,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             linkAwareTextView.searchOverlayPresented = false
             linkAwareTextView.window?.invalidateCursorRects(for: linkAwareTextView)
         }
+        searchState.hasTypedQueryInSession = false
         searchState.query = ""
         searchState.results = []
         searchState.selectedResultID = nil
@@ -489,17 +491,28 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     }
 
     private func updateSearch(query: String) {
+        let hadTypedQuery = searchState.hasTypedQueryInSession
+        if !query.isEmpty {
+            searchState.hasTypedQueryInSession = true
+        }
         searchState.results = store.searchNotes(query: query)
-        selectCurrentNoteSearchResultOrFallback()
+        let typedThisUpdate = !hadTypedQuery && searchState.hasTypedQueryInSession
+        selectCurrentNoteSearchResultOrFallback(forceFirstResult: typedThisUpdate)
     }
 
-    private func selectCurrentNoteSearchResultOrFallback() {
+    private func selectCurrentNoteSearchResultOrFallback(forceFirstResult: Bool = false) {
         if searchState.results.isEmpty {
             searchState.selectedResultID = nil
             return
         }
 
-        if let current = searchState.results.first(where: { $0.fileURL == store.currentNoteFileURL }) {
+        if forceFirstResult {
+            searchState.selectedResultID = searchState.results[0].id
+            return
+        }
+
+        if !searchState.hasTypedQueryInSession,
+           let current = searchState.results.first(where: { $0.fileURL == store.currentNoteFileURL }) {
             searchState.selectedResultID = current.id
             return
         }
@@ -638,6 +651,7 @@ private final class NotesPanel: NSPanel {
 private final class NoteSearchState: ObservableObject {
     @Published var isPresented = false
     @Published var query = ""
+    @Published var hasTypedQueryInSession = false
     @Published var results: [NoteSearchResult] = []
     @Published var selectedResultID: NoteSearchResult.ID?
     @Published var hoverSelectionEnabled = true
