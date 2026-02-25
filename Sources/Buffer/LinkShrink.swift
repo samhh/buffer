@@ -126,6 +126,21 @@ enum LinkShrink {
         spans.first(where: { $0.intersects(selection) })?.range
     }
 
+    static func activeLinkRanges(in spans: [ShrunkLinkSpan], selection: NSRange) -> [NSRange] {
+        guard selection.location != NSNotFound else {
+            return []
+        }
+        if selection.length == 0 {
+            guard let activeRange = activeLinkRange(in: spans, selection: selection) else {
+                return []
+            }
+            return [activeRange]
+        }
+        return spans
+            .filter { $0.intersects(selection) }
+            .map(\.range)
+    }
+
     static func span(containing characterIndex: Int, in spans: [ShrunkLinkSpan]) -> ShrunkLinkSpan? {
         spans.first(where: { $0.contains(characterIndex: characterIndex) })
     }

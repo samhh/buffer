@@ -85,6 +85,44 @@ final class LinkShrinkTests: XCTestCase {
         XCTAssertEqual(LinkShrink.activeLinkRange(in: spans, selection: NSRange(location: 10, length: 4)), spans[0].range)
     }
 
+    func testActiveLinkRangesReturnsAllMatchesForExpandedSelection() {
+        let spans: [ShrunkLinkSpan] = [
+            .init(range: NSRange(location: 4, length: 8), urlString: "https://a.com", displayText: "a"),
+            .init(range: NSRange(location: 18, length: 8), urlString: "https://b.com", displayText: "b"),
+            .init(range: NSRange(location: 32, length: 8), urlString: "https://c.com", displayText: "c")
+        ]
+
+        let selection = NSRange(location: 10, length: 20)
+        XCTAssertEqual(
+            LinkShrink.activeLinkRanges(in: spans, selection: selection),
+            [spans[0].range, spans[1].range]
+        )
+    }
+
+    func testActiveLinkRangesReturnsSingleRangeForCaretSelection() {
+        let spans: [ShrunkLinkSpan] = [
+            .init(range: NSRange(location: 4, length: 8), urlString: "https://a.com", displayText: "a"),
+            .init(range: NSRange(location: 18, length: 8), urlString: "https://b.com", displayText: "b")
+        ]
+
+        XCTAssertEqual(
+            LinkShrink.activeLinkRanges(in: spans, selection: NSRange(location: 20, length: 0)),
+            [spans[1].range]
+        )
+    }
+
+    func testActiveLinkRangesReturnsEmptyWhenSelectionMissesLinks() {
+        let spans: [ShrunkLinkSpan] = [
+            .init(range: NSRange(location: 4, length: 8), urlString: "https://a.com", displayText: "a"),
+            .init(range: NSRange(location: 18, length: 8), urlString: "https://b.com", displayText: "b")
+        ]
+
+        XCTAssertEqual(
+            LinkShrink.activeLinkRanges(in: spans, selection: NSRange(location: 27, length: 3)),
+            []
+        )
+    }
+
     func testSpanContainingCharacterIndexResolvesInsideRange() {
         let spanA = ShrunkLinkSpan(range: NSRange(location: 0, length: 5), urlString: "a://x", displayText: "a")
         let spanB = ShrunkLinkSpan(range: NSRange(location: 10, length: 4), urlString: "b://y", displayText: "b")

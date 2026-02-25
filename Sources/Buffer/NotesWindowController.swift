@@ -1341,7 +1341,7 @@ private struct PlainTextEditor: NSViewRepresentable {
 private final class LineDeleteOnCutTextView: NSTextView {
     private(set) var linkSpans: [ShrunkLinkSpan] = []
     nonisolated(unsafe) private(set) var linkSpansForDisplay: [ShrunkLinkSpan] = []
-    nonisolated(unsafe) private(set) var activeLinkRangeForDisplay: NSRange?
+    nonisolated(unsafe) private(set) var activeLinkRangesForDisplay: [NSRange] = []
     private var linkTrackingArea: NSTrackingArea?
     private var rememberedLinkRangeForVerticalNavigation: NSRange?
     private var expandRememberedLinkForCurrentVerticalMove = false
@@ -1366,8 +1366,8 @@ private final class LineDeleteOnCutTextView: NSTextView {
 
     func refreshSelectionLinkState() {
         let currentSelection = selectedRange()
-        let currentActiveRange = LinkShrink.activeLinkRange(in: linkSpans, selection: currentSelection)
-        if let currentActiveRange {
+        if currentSelection.length == 0,
+           let currentActiveRange = LinkShrink.activeLinkRange(in: linkSpans, selection: currentSelection) {
             rememberedLinkRangeForVerticalNavigation = currentActiveRange
         }
         expandRememberedLinkForCurrentVerticalMove = false
@@ -1375,14 +1375,21 @@ private final class LineDeleteOnCutTextView: NSTextView {
         updateCursorForCurrentLocation()
     }
 
-    func activeLinkRangeForSelection() -> NSRange? {
+    func activeLinkRangesForSelection() -> [NSRange] {
+        let currentSelection = selectedRange()
+        if currentSelection.length > 0 {
+            return LinkShrink.activeLinkRanges(in: linkSpans, selection: currentSelection)
+        }
         if let active = LinkShrink.activeLinkRange(in: linkSpans, selection: selectedRange()) {
-            return active
+            return [active]
         }
         guard expandRememberedLinkForCurrentVerticalMove else {
-            return nil
+            return []
         }
-        return rememberedLinkRangeForVerticalNavigation
+        guard let rememberedLinkRangeForVerticalNavigation else {
+            return []
+        }
+        return [rememberedLinkRangeForVerticalNavigation]
     }
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
@@ -1568,11 +1575,11 @@ private final class LineDeleteOnCutTextView: NSTextView {
 
     private func syncLinkDisplayState() {
         linkSpansForDisplay = linkSpans
-        activeLinkRangeForDisplay = activeLinkRangeForSelection()
+        activeLinkRangesForDisplay = activeLinkRangesForSelection()
         if let linkLayoutManager = layoutManager as? ListBulletLayoutManager {
             linkLayoutManager.updateLinkCompression(
                 spans: linkSpansForDisplay,
-                activeRange: activeLinkRangeForDisplay
+                activeRanges: activeLinkRangesForDisplay
             )
         }
     }
@@ -1694,7 +1701,7 @@ private final class ListBulletLayoutManager: NSLayoutManager {
         marker.stroke()
     }
 
-    func updateLinkCompression(spans: [ShrunkLinkSpan], activeRange: NSRange?) {
+    func updateLinkCompression(spans: [ShrunkLinkSpan], activeRanges: [NSRange]) {
         guard let textStorage else {
             compressedLinkRanges = []
             return
@@ -1713,7 +1720,7 @@ private final class ListBulletLayoutManager: NSLayoutManager {
                   NSMaxRange(span.range) <= fullLength else {
                 continue
             }
-            if let activeRange, NSIntersectionRange(activeRange, span.range).length > 0 {
+            if intersectsAnyActiveRange(span.range, activeRanges: activeRanges) {
                 continue
             }
 
@@ -1764,7 +1771,7 @@ private final class ListBulletLayoutManager: NSLayoutManager {
         }
         let spans = inactiveSpansForDisplay(
             spans: textView.linkSpansForDisplay,
-            activeRange: textView.activeLinkRangeForDisplay
+            activeRanges: textView.activeLinkRangesForDisplay
         )
         let font = NSFont.systemFont(ofSize: 14)
         let attributes: [NSAttributedString.Key: Any] = [
@@ -1802,11 +1809,15 @@ private final class ListBulletLayoutManager: NSLayoutManager {
         }
     }
 
-    private func inactiveSpansForDisplay(spans: [ShrunkLinkSpan], activeRange: NSRange?) -> [ShrunkLinkSpan] {
-        if let activeRange {
-            return spans.filter { NSIntersectionRange($0.range, activeRange).length == 0 }
+    private func inactiveSpansForDisplay(spans: [ShrunkLinkSpan], activeRanges: [NSRange]) -> [ShrunkLinkSpan] {
+        guard !activeRanges.isEmpty else {
+            return spans
         }
-        return spans
+        return spans.filter { !intersectsAnyActiveRange($0.range, activeRanges: activeRanges) }
+    }
+
+    private func intersectsAnyActiveRange(_ range: NSRange, activeRanges: [NSRange]) -> Bool {
+        activeRanges.contains { NSIntersectionRange($0, range).length > 0 }
     }
 
     private var primaryTextView: NSTextView? {
