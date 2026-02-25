@@ -19,12 +19,42 @@ struct TitlePatternSpec: Equatable {
 enum TitlePatternGenerator {
     static let densityLevels = 3
     static let accentMixLevels = 3
-    private static let hues: [Double] = [
-        0.02, 0.08, 0.14, 0.21, 0.30, 0.40, 0.50, 0.58, 0.64, 0.72, 0.82, 0.92
+    // Picker icon gradients are based on Catppuccin accents:
+    // - Light mode uses Latte
+    // - Dark mode uses Mocha
+    // Source: https://catppuccin.com/palette/
+    private static let latteAccentRing: [Color] = [
+        color(hex: 0xEA76CB), // Pink
+        color(hex: 0x8839EF), // Mauve
+        color(hex: 0xD20F39), // Red
+        color(hex: 0xE64553), // Maroon
+        color(hex: 0xFE640B), // Peach
+        color(hex: 0xDF8E1D), // Yellow
+        color(hex: 0x40A02B), // Green
+        color(hex: 0x179299), // Teal
+        color(hex: 0x04A5E5), // Sky
+        color(hex: 0x209FB5), // Sapphire
+        color(hex: 0x1E66F5), // Blue
+        color(hex: 0x7287FD), // Lavender
+    ]
+
+    private static let mochaAccentRing: [Color] = [
+        color(hex: 0xF5C2E7), // Pink
+        color(hex: 0xCBA6F7), // Mauve
+        color(hex: 0xF38BA8), // Red
+        color(hex: 0xEBA0AC), // Maroon
+        color(hex: 0xFAB387), // Peach
+        color(hex: 0xF9E2AF), // Yellow
+        color(hex: 0xA6E3A1), // Green
+        color(hex: 0x94E2D5), // Teal
+        color(hex: 0x89DCEB), // Sky
+        color(hex: 0x74C7EC), // Sapphire
+        color(hex: 0x89B4FA), // Blue
+        color(hex: 0xB4BEFE), // Lavender
     ]
 
     static var paletteCount: Int {
-        hues.count
+        latteAccentRing.count
     }
 
     static func spec(for title: String) -> TitlePatternSpec {
@@ -40,20 +70,14 @@ enum TitlePatternGenerator {
     }
 
     fileprivate static func palette(for index: Int, scheme: ColorScheme, accentMix: Int) -> TitlePatternPalette {
-        let hue = hues[index % hues.count]
-        let accentHue = wrappedHue(hue + [0.09, -0.12, 0.20][accentMix % accentMixLevels])
-        let contrastHue = wrappedHue(hue + 0.50)
-        if scheme == .dark {
-            return TitlePatternPalette(
-                background: Color(hue: hue, saturation: 0.80, brightness: 0.62),
-                accent: Color(hue: accentHue, saturation: 0.76, brightness: 0.82),
-                contrast: Color(hue: contrastHue, saturation: 0.58, brightness: 0.88)
-            )
-        }
+        let ring = scheme == .dark ? mochaAccentRing : latteAccentRing
+        let baseIndex = index % ring.count
+        let accentOffset = [2, 5, 8][accentMix % accentMixLevels]
+        let contrastOffset = 6
         return TitlePatternPalette(
-            background: Color(hue: hue, saturation: 0.68, brightness: 0.92),
-            accent: Color(hue: accentHue, saturation: 0.78, brightness: 0.78),
-            contrast: Color(hue: contrastHue, saturation: 0.56, brightness: 0.66)
+            background: ring[baseIndex],
+            accent: ring[(baseIndex + accentOffset) % ring.count],
+            contrast: ring[(baseIndex + contrastOffset) % ring.count]
         )
     }
 
@@ -61,9 +85,11 @@ enum TitlePatternGenerator {
         Int((hash >> shift) % UInt64(modulo))
     }
 
-    private static func wrappedHue(_ value: Double) -> Double {
-        let result = value.truncatingRemainder(dividingBy: 1)
-        return result >= 0 ? result : result + 1
+    private static func color(hex: UInt32) -> Color {
+        let red = Double((hex >> 16) & 0xFF) / 255.0
+        let green = Double((hex >> 8) & 0xFF) / 255.0
+        let blue = Double(hex & 0xFF) / 255.0
+        return Color(.sRGB, red: red, green: green, blue: blue, opacity: 1)
     }
 
     private static func fnv1a64(of string: String) -> UInt64 {
