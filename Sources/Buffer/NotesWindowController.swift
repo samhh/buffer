@@ -1,6 +1,17 @@
 import AppKit
 import SwiftUI
 
+private struct MainQueuedAction: @unchecked Sendable {
+    let action: () -> Void
+}
+
+private func scheduleOnMain(_ action: @escaping () -> Void) {
+    let queued = MainQueuedAction(action: action)
+    DispatchQueue.main.async {
+        queued.action()
+    }
+}
+
 @MainActor
 final class NotesWindowController: NSObject, NSWindowDelegate {
     private let store: NotesStore
@@ -15,25 +26,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     init(store: NotesStore) {
         self.store = store
-        let contentView = NoteEditorView(
-            store: store,
-            searchState: searchState,
-            inNoteFindState: inNoteFindState,
-            editorState: editorState,
-            editorBridge: editorBridge,
-            onUserEdit: {},
-            onQueryChange: { _ in },
-            onInNoteFindQueryChange: { _ in },
-            onCloseSearch: {},
-            onCloseInNoteFind: {},
-            onSelectResult: { _ in },
-            onDeleteResult: { _ in },
-            onTogglePinResult: { _ in },
-            onHoverSearchResultIndex: { _ in },
-            onUndoDeletedNote: {},
-            onDismissDeletedToast: {}
-        )
-        let hostingView = NSHostingView(rootView: contentView)
+        let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
 
         window = NotesPanel(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
@@ -76,11 +69,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             onTogglePinResult: { [weak self] result in
                 self?.togglePinnedSearchResult(result)
             },
-            onHoverSearchResultIndex: { [weak self] index in
-                guard let self,
-                      let index,
-                      self.searchState.results.indices.contains(index) else { return }
-                self.searchState.selectedIndex = index
+            onHoverSearchResultID: { [weak self] id in
+                guard let self, let id else { return }
+                self.searchState.selectedResultID = id
             },
             onUndoDeletedNote: { [weak self] in
                 self?.undoLastDeletedNote()
@@ -91,7 +82,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
                 }
             }
         )
-        hostingView.rootView = rootView
+        hostingView.rootView = AnyView(rootView)
 
         window.isReleasedWhenClosed = false
         // Keep Buffer above utility panels from other menu bar apps (for example Raycast Notes).
@@ -251,6 +242,21 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    @MainActor deinit {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+        if let mouseMoveMonitor {
+            NSEvent.removeMonitor(mouseMoveMonitor)
+            self.mouseMoveMonitor = nil
+        }
+        if let didResignActiveObserver {
+            NotificationCenter.default.removeObserver(didResignActiveObserver)
+            self.didResignActiveObserver = nil
+        }
+    }
+
     func toggleWindow() {
         if window.isVisible {
             hideSearch()
@@ -335,18 +341,18 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             hideSearch(refocusEditor: true)
             return nil
         case 125: // Down
-            guard !searchState.results.isEmpty else { return nil }
+            guard let next = relativeSearchResult(step: 1) else { return nil }
             searchState.hoverSelectionEnabled = false
-            searchState.selectedIndex = min(searchState.selectedIndex + 1, searchState.results.count - 1)
+            searchState.selectedResultID = next.id
             return nil
         case 126: // Up
-            guard !searchState.results.isEmpty else { return nil }
+            guard let previous = relativeSearchResult(step: -1) else { return nil }
             searchState.hoverSelectionEnabled = false
-            searchState.selectedIndex = max(searchState.selectedIndex - 1, 0)
+            searchState.selectedResultID = previous.id
             return nil
         case 36, 76: // Return
-            guard searchState.results.indices.contains(searchState.selectedIndex) else { return nil }
-            openSearchResult(searchState.results[searchState.selectedIndex])
+            guard let selected = selectedSearchResult() else { return nil }
+            openSearchResult(selected)
             return nil
         default:
             return event
@@ -388,7 +394,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         }
         searchState.query = ""
         searchState.results = []
-        searchState.selectedIndex = 0
+        searchState.selectedResultID = nil
         if refocusEditor {
             requestEditorFocus()
         }
@@ -430,42 +436,39 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     }
 
     private func deleteSelectedSearchResult() {
-        guard searchState.results.indices.contains(searchState.selectedIndex) else {
-            return
-        }
-        deleteSearchResult(searchState.results[searchState.selectedIndex])
+        guard let selected = selectedSearchResult() else { return }
+        deleteSearchResult(selected)
     }
 
     private func deleteSearchResult(_ result: NoteSearchResult) {
-        let deletedIndex = searchState.results.firstIndex(where: { $0.id == result.id }) ?? searchState.selectedIndex
+        let deletedIndex = searchState.results.firstIndex(where: { $0.id == result.id }) ?? 0
         guard store.deleteNote(at: result.fileURL) != nil else {
             return
         }
 
         searchState.results = store.searchNotes(query: searchState.query)
         if searchState.results.isEmpty {
-            searchState.selectedIndex = 0
+            searchState.selectedResultID = nil
         } else {
-            searchState.selectedIndex = min(deletedIndex, searchState.results.count - 1)
+            let fallbackIndex = min(deletedIndex, searchState.results.count - 1)
+            searchState.selectedResultID = searchState.results[fallbackIndex].id
         }
     }
 
     private func togglePinnedSelectedSearchResult() {
-        guard searchState.results.indices.contains(searchState.selectedIndex) else {
-            return
-        }
-        togglePinnedSearchResult(searchState.results[searchState.selectedIndex])
+        guard let selected = selectedSearchResult() else { return }
+        togglePinnedSearchResult(selected)
     }
 
     private func togglePinnedSearchResult(_ result: NoteSearchResult) {
         _ = store.togglePinned(at: result.fileURL)
         searchState.results = store.searchNotes(query: searchState.query)
-        if let restoredIndex = searchState.results.firstIndex(where: { $0.fileURL == result.fileURL }) {
-            searchState.selectedIndex = restoredIndex
+        if let restored = searchState.results.first(where: { $0.fileURL == result.fileURL }) {
+            searchState.selectedResultID = restored.id
         } else if searchState.results.isEmpty {
-            searchState.selectedIndex = 0
+            searchState.selectedResultID = nil
         } else {
-            searchState.selectedIndex = min(searchState.selectedIndex, searchState.results.count - 1)
+            searchState.selectedResultID = searchState.results[0].id
         }
     }
 
@@ -475,12 +478,12 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         }
         if searchState.isPresented {
             searchState.results = store.searchNotes(query: searchState.query)
-            if let restoredIndex = searchState.results.firstIndex(where: { $0.fileURL == restored.fileURL }) {
-                searchState.selectedIndex = restoredIndex
+            if let restoredResult = searchState.results.first(where: { $0.fileURL == restored.fileURL }) {
+                searchState.selectedResultID = restoredResult.id
             } else if searchState.results.isEmpty {
-                searchState.selectedIndex = 0
+                searchState.selectedResultID = nil
             } else {
-                searchState.selectedIndex = min(searchState.selectedIndex, searchState.results.count - 1)
+                searchState.selectedResultID = searchState.results[0].id
             }
         }
     }
@@ -492,16 +495,41 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     private func selectCurrentNoteSearchResultOrFallback() {
         if searchState.results.isEmpty {
-            searchState.selectedIndex = 0
+            searchState.selectedResultID = nil
             return
         }
 
-        if let currentIndex = searchState.results.firstIndex(where: { $0.fileURL == store.currentNoteFileURL }) {
-            searchState.selectedIndex = currentIndex
+        if let current = searchState.results.first(where: { $0.fileURL == store.currentNoteFileURL }) {
+            searchState.selectedResultID = current.id
             return
         }
 
-        searchState.selectedIndex = min(searchState.selectedIndex, searchState.results.count - 1)
+        if let selectedID = searchState.selectedResultID,
+           searchState.results.contains(where: { $0.id == selectedID }) {
+            return
+        }
+        searchState.selectedResultID = searchState.results[0].id
+    }
+
+    private func selectedSearchResult() -> NoteSearchResult? {
+        guard !searchState.results.isEmpty else { return nil }
+        guard let selectedID = searchState.selectedResultID else {
+            return searchState.results.first
+        }
+        return searchState.results.first(where: { $0.id == selectedID }) ?? searchState.results.first
+    }
+
+    private func relativeSearchResult(step: Int) -> NoteSearchResult? {
+        guard !searchState.results.isEmpty else { return nil }
+        let currentIndex: Int
+        if let selectedID = searchState.selectedResultID,
+           let resolvedIndex = searchState.results.firstIndex(where: { $0.id == selectedID }) {
+            currentIndex = resolvedIndex
+        } else {
+            currentIndex = 0
+        }
+        let nextIndex = min(max(currentIndex + step, 0), searchState.results.count - 1)
+        return searchState.results[nextIndex]
     }
 
     private func updateInNoteFind(query: String) {
@@ -611,7 +639,7 @@ private final class NoteSearchState: ObservableObject {
     @Published var isPresented = false
     @Published var query = ""
     @Published var results: [NoteSearchResult] = []
-    @Published var selectedIndex = 0
+    @Published var selectedResultID: NoteSearchResult.ID?
     @Published var hoverSelectionEnabled = true
     @Published var highlightColors: [Color] = mochaAccentColors
 
@@ -665,7 +693,7 @@ private struct NoteEditorView: View {
     let onSelectResult: (NoteSearchResult) -> Void
     let onDeleteResult: (NoteSearchResult) -> Void
     let onTogglePinResult: (NoteSearchResult) -> Void
-    let onHoverSearchResultIndex: (Int?) -> Void
+    let onHoverSearchResultID: (NoteSearchResult.ID?) -> Void
     let onUndoDeletedNote: () -> Void
     let onDismissDeletedToast: () -> Void
     @State private var toastDismissWorkItem: DispatchWorkItem?
@@ -701,9 +729,9 @@ private struct NoteEditorView: View {
                         set: { searchState.query = $0 }
                     ),
                     results: searchState.results,
-                    selectedIndex: Binding(
-                        get: { searchState.selectedIndex },
-                        set: { searchState.selectedIndex = $0 }
+                    selectedResultID: Binding(
+                        get: { searchState.selectedResultID },
+                        set: { searchState.selectedResultID = $0 }
                     ),
                     hoverSelectionEnabled: searchState.hoverSelectionEnabled,
                     highlightColors: searchState.highlightColors,
@@ -711,7 +739,7 @@ private struct NoteEditorView: View {
                     onSelect: onSelectResult,
                     onDelete: onDeleteResult,
                     onTogglePin: onTogglePinResult,
-                    onHoverResultIndex: onHoverSearchResultIndex
+                    onHoverResultID: onHoverSearchResultID
                 )
                 .padding(.top, 6)
                 .padding(.horizontal, 14)
@@ -921,7 +949,7 @@ private struct InNoteFindBarView: View {
                 )
         )
         .onAppear {
-            DispatchQueue.main.async {
+            scheduleOnMain {
                 isFocused = true
             }
         }
@@ -945,18 +973,18 @@ private struct SearchOverlayView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Binding var query: String
     let results: [NoteSearchResult]
-    @Binding var selectedIndex: Int
+    @Binding var selectedResultID: NoteSearchResult.ID?
     let hoverSelectionEnabled: Bool
     let highlightColors: [Color]
     let onClose: () -> Void
     let onSelect: (NoteSearchResult) -> Void
     let onDelete: (NoteSearchResult) -> Void
     let onTogglePin: (NoteSearchResult) -> Void
-    let onHoverResultIndex: (Int?) -> Void
+    let onHoverResultID: (NoteSearchResult.ID?) -> Void
     @FocusState private var searchFocused: Bool
-    @State private var hoveredIndex: Int?
-    @State private var hoveredPinIndex: Int?
-    @State private var hoveredTrashIndex: Int?
+    @State private var hoveredResultID: NoteSearchResult.ID?
+    @State private var hoveredPinResultID: NoteSearchResult.ID?
+    @State private var hoveredTrashResultID: NoteSearchResult.ID?
     @State private var suppressNextSelectionAutoScroll = false
 
     var body: some View {
@@ -992,9 +1020,9 @@ private struct SearchOverlayView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 2) {
-                        ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
-                            resultRow(index: index, result: result)
-                                .id(index)
+                        ForEach(results) { result in
+                            resultRow(result: result)
+                                .id(result.id)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1003,7 +1031,7 @@ private struct SearchOverlayView: View {
                 .onAppear {
                     scrollSelectionIntoView(using: proxy)
                 }
-                .onChange(of: selectedIndex) { _, _ in
+                .onChange(of: selectedResultID) { _, _ in
                     if suppressNextSelectionAutoScroll {
                         suppressNextSelectionAutoScroll = false
                         return
@@ -1025,23 +1053,24 @@ private struct SearchOverlayView: View {
                 )
         )
         .onAppear {
-            DispatchQueue.main.async {
+            scheduleOnMain {
                 searchFocused = true
             }
         }
     }
 
     private func scrollSelectionIntoView(using proxy: ScrollViewProxy) {
-        guard results.indices.contains(selectedIndex) else { return }
-        DispatchQueue.main.async {
-            proxy.scrollTo(selectedIndex, anchor: .center)
+        guard let selectedResultID,
+              results.contains(where: { $0.id == selectedResultID }) else { return }
+        scheduleOnMain {
+            proxy.scrollTo(selectedResultID, anchor: .center)
         }
     }
 
-    private func resultRow(index: Int, result: NoteSearchResult) -> some View {
-        let effectiveHoveredIndex = hoverSelectionEnabled ? hoveredIndex : nil
-        let isActive = index == selectedIndex || index == effectiveHoveredIndex
-        let showsActions = index == effectiveHoveredIndex
+    private func resultRow(result: NoteSearchResult) -> some View {
+        let effectiveHoveredResultID = hoverSelectionEnabled ? hoveredResultID : nil
+        let isActive = result.id == selectedResultID || result.id == effectiveHoveredResultID
+        let showsActions = result.id == effectiveHoveredResultID
 
         return HStack(alignment: .center, spacing: 8) {
             TitlePatternIcon(title: result.title)
@@ -1059,7 +1088,7 @@ private struct SearchOverlayView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            actionButtons(for: result, at: index, visible: showsActions)
+            actionButtons(for: result, visible: showsActions)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -1074,18 +1103,18 @@ private struct SearchOverlayView: View {
             switch phase {
             case .active:
                 NSCursor.pointingHand.set()
-                hoveredIndex = index
+                hoveredResultID = result.id
                 if hoverSelectionEnabled {
                     suppressNextSelectionAutoScroll = true
-                    selectedIndex = index
-                    onHoverResultIndex(index)
+                    selectedResultID = result.id
+                    onHoverResultID(result.id)
                 }
             case .ended:
-                if hoveredIndex == index {
-                    hoveredIndex = nil
-                    hoveredPinIndex = nil
-                    hoveredTrashIndex = nil
-                    onHoverResultIndex(nil)
+                if hoveredResultID == result.id {
+                    hoveredResultID = nil
+                    hoveredPinResultID = nil
+                    hoveredTrashResultID = nil
+                    onHoverResultID(nil)
                 }
                 NSCursor.arrow.set()
             }
@@ -1113,7 +1142,7 @@ private struct SearchOverlayView: View {
         colorScheme == .dark ? .white.opacity(0.22) : .black.opacity(0.18)
     }
 
-    private func actionButtons(for result: NoteSearchResult, at index: Int, visible: Bool) -> some View {
+    private func actionButtons(for result: NoteSearchResult, visible: Bool) -> some View {
         ZStack {
             if visible || result.isPinned {
                 HStack(spacing: 4) {
@@ -1128,12 +1157,12 @@ private struct SearchOverlayView: View {
                             .padding(2)
                             .background(
                                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill(hoveredPinIndex == index ? .white.opacity(0.10) : .clear)
+                                    .fill(hoveredPinResultID == result.id ? .white.opacity(0.10) : .clear)
                             )
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                     .onHover { hovering in
-                        hoveredPinIndex = hovering ? index : nil
+                        hoveredPinResultID = hovering ? result.id : nil
                     }
                     .buttonStyle(.plain)
                     .help(result.isPinned ? "Unpin note (Cmd+Shift+P)" : "Pin note (Cmd+Shift+P)")
@@ -1149,12 +1178,12 @@ private struct SearchOverlayView: View {
                                 .padding(2)
                                 .background(
                                     RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .fill(hoveredTrashIndex == index ? .white.opacity(0.10) : .clear)
+                                        .fill(hoveredTrashResultID == result.id ? .white.opacity(0.10) : .clear)
                                 )
                         }
                         .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                         .onHover { hovering in
-                            hoveredTrashIndex = hovering ? index : nil
+                            hoveredTrashResultID = hovering ? result.id : nil
                         }
                         .buttonStyle(.plain)
                         .help("Delete note (Cmd+D)")
@@ -1308,7 +1337,7 @@ private struct PlainTextEditor: NSViewRepresentable {
 
         if context.coordinator.lastFocusToken != focusToken {
             context.coordinator.lastFocusToken = focusToken
-            DispatchQueue.main.async {
+            scheduleOnMain {
                 textView.window?.makeFirstResponder(textView)
             }
         }
