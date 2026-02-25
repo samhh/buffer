@@ -30,6 +30,15 @@ final class LinkShrinkTests: XCTestCase {
         XCTAssertEqual(spans[0].urlString, "github.com/org/repo/issues/14821")
     }
 
+    func testDetectLinksExcludesTrailingPunctuationForHTTPSNumericSegments() {
+        let text = "See https://raycast.com/0123456789/012345."
+        let spans = LinkShrink.detectLinks(in: text as NSString)
+
+        XCTAssertEqual(spans.count, 1)
+        XCTAssertEqual(spans[0].urlString, "https://raycast.com/0123456789/012345")
+        XCTAssertEqual(spans[0].displayText, "raycast.com/.../012345")
+    }
+
     func testDetectLinksDoesNotConsumeTrailingWhitespace() {
         let text = "before https://example.com/long/path after"
         let nsText = text as NSString

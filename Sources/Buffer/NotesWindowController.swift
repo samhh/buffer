@@ -1967,7 +1967,6 @@ private final class ListBulletLayoutManager: NSLayoutManager {
             return
         }
         guard let textContainer = textContainers.first else { return }
-        let textStorageString = textStorage?.string as NSString?
         let spans = inactiveSpansForDisplay(
             spans: textView.linkSpansForDisplay,
             activeRanges: textView.activeLinkRangesForDisplay
@@ -2007,17 +2006,7 @@ private final class ListBulletLayoutManager: NSLayoutManager {
             if span.displayText.count > 1 {
                 let targetWidth = boundingRect(forGlyphRange: glyphRange, in: textContainer).width
                 let displayWidth = (span.displayText as NSString).size(withAttributes: [.font: font]).width
-                // If the draw-time label is narrower than the glyph run, spread it to avoid a trailing gap.
-                var extraWidth = targetWidth - displayWidth
-                if extraWidth <= 0.15,
-                   let textStorageString,
-                   span.range.location != NSNotFound,
-                   span.range.length > 0,
-                   NSMaxRange(span.range) <= textStorageString.length {
-                    let originalText = textStorageString.substring(with: span.range)
-                    let originalWidth = (originalText as NSString).size(withAttributes: [.font: font]).width
-                    extraWidth = originalWidth - displayWidth
-                }
+                let extraWidth = targetWidth - displayWidth
                 if extraWidth > 0.15 {
                     let kern = extraWidth / CGFloat(span.displayText.count - 1)
                     attributes[.kern] = kern
