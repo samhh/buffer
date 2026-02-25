@@ -1286,7 +1286,13 @@ private struct PlainTextEditor: NSViewRepresentable {
     }()
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onUserEdit: onUserEdit)
+        Coordinator(
+            text: $text,
+            onUserEdit: onUserEdit,
+            applyParagraphStyle: { textView in
+                applyParagraphStyle(in: textView)
+            }
+        )
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -1360,11 +1366,17 @@ private struct PlainTextEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
         let onUserEdit: () -> Void
+        let applyParagraphStyle: (NSTextView) -> Void
         var lastFocusToken: Int = -1
 
-        init(text: Binding<String>, onUserEdit: @escaping () -> Void) {
+        init(
+            text: Binding<String>,
+            onUserEdit: @escaping () -> Void,
+            applyParagraphStyle: @escaping (NSTextView) -> Void
+        ) {
             _text = text
             self.onUserEdit = onUserEdit
+            self.applyParagraphStyle = applyParagraphStyle
         }
 
         func textDidChange(_ notification: Notification) {
@@ -1374,6 +1386,7 @@ private struct PlainTextEditor: NSViewRepresentable {
             if let linkAwareTextView = textView as? LineDeleteOnCutTextView {
                 linkAwareTextView.refreshLinkSpans()
             }
+            applyParagraphStyle(textView)
             text = textView.string
             let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
             textView.layoutManager?.invalidateDisplay(forCharacterRange: fullRange)
@@ -1394,10 +1407,65 @@ private struct PlainTextEditor: NSViewRepresentable {
         }
     }
 
+    private static let indentUnitWidth: CGFloat = {
+        (SmartListEditing.indentUnit as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
+    }()
+
     private func applyParagraphStyle(in textView: NSTextView) {
-        let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
-        guard fullRange.length > 0 else { return }
-        textView.textStorage?.addAttribute(.paragraphStyle, value: Self.editorParagraphStyle, range: fullRange)
+        guard let textStorage = textView.textStorage else { return }
+        let nsText = textView.string as NSString
+        let fullRange = NSRange(location: 0, length: nsText.length)
+
+        guard fullRange.length > 0 else {
+            textView.typingAttributes[.paragraphStyle] = Self.editorParagraphStyle
+            return
+        }
+
+        textStorage.beginEditing()
+        var location = 0
+        while location < nsText.length {
+            let lineRange = nsText.lineRange(for: NSRange(location: location, length: 0))
+            let contentRange = Self.contentRangeOfLine(in: nsText, lineRange: lineRange)
+            let lineContent = contentRange.length > 0 ? nsText.substring(with: contentRange) : ""
+            let depth = Self.indentDepthForWrapping(in: lineContent)
+            textStorage.addAttribute(.paragraphStyle, value: Self.paragraphStyle(forIndentDepth: depth), range: lineRange)
+            location = NSMaxRange(lineRange)
+        }
+        textStorage.endEditing()
+
+        let selectedLocation = min(textView.selectedRange().location, nsText.length)
+        let currentLineRange = nsText.lineRange(for: NSRange(location: selectedLocation, length: 0))
+        let currentContentRange = Self.contentRangeOfLine(in: nsText, lineRange: currentLineRange)
+        let currentLine = currentContentRange.length > 0 ? nsText.substring(with: currentContentRange) : ""
+        let currentDepth = Self.indentDepthForWrapping(in: currentLine)
+        textView.typingAttributes[.paragraphStyle] = Self.paragraphStyle(forIndentDepth: currentDepth)
+    }
+
+    private static func indentDepthForWrapping(in line: String) -> Int {
+        let rawLeadingSpaces = line.prefix { $0 == " " }.count
+        let normalized = (rawLeadingSpaces / SmartListEditing.indentUnit.count) * SmartListEditing.indentUnit.count
+        return normalized / SmartListEditing.indentUnit.count
+    }
+
+    private static func paragraphStyle(forIndentDepth depth: Int) -> NSParagraphStyle {
+        guard depth > 0 else { return editorParagraphStyle }
+        let style = editorParagraphStyle.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+        style.firstLineHeadIndent = 0
+        style.headIndent = CGFloat(depth) * indentUnitWidth
+        return style
+    }
+
+    private static func contentRangeOfLine(in text: NSString, lineRange: NSRange) -> NSRange {
+        var length = lineRange.length
+        while length > 0 {
+            let char = text.character(at: lineRange.location + length - 1)
+            if char == 10 || char == 13 {
+                length -= 1
+            } else {
+                break
+            }
+        }
+        return NSRange(location: lineRange.location, length: length)
     }
 }
 
@@ -1715,6 +1783,7 @@ private final class ListBulletLayoutManager: NSLayoutManager {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
         drawIndentMarkers(forGlyphRange: glyphsToShow, at: origin)
         drawShrunkLinks(forGlyphRange: glyphsToShow, at: origin)
+        drawContinuationFade(forGlyphRange: glyphsToShow, at: origin)
     }
 
     private func drawIndentMarkers(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
@@ -1872,6 +1941,52 @@ private final class ListBulletLayoutManager: NSLayoutManager {
         }
     }
 
+    private func drawContinuationFade(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let textStorage else { return }
+        let text = textStorage.string as NSString
+        guard text.length > 0 else { return }
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+
+        let glyphEnd = NSMaxRange(glyphsToShow)
+        var glyphIndex = glyphsToShow.location
+        while glyphIndex < glyphEnd {
+            var fragmentGlyphRange = NSRange(location: 0, length: 0)
+            let lineRect = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &fragmentGlyphRange)
+            guard fragmentGlyphRange.length > 0 else {
+                glyphIndex += 1
+                continue
+            }
+
+            defer { glyphIndex = NSMaxRange(fragmentGlyphRange) }
+            if NSIntersectionRange(fragmentGlyphRange, glyphsToShow).length == 0 {
+                continue
+            }
+
+            let charRange = characterRange(forGlyphRange: fragmentGlyphRange, actualGlyphRange: nil)
+            guard charRange.location != NSNotFound, charRange.length > 0 else {
+                continue
+            }
+
+            let hardLineStart = text.lineRange(for: NSRange(location: charRange.location, length: 0)).location
+            guard charRange.location > hardLineStart else {
+                continue
+            }
+
+            let fadeRect = NSRect(
+                x: origin.x + lineRect.minX,
+                y: origin.y + lineRect.minY,
+                width: lineRect.width,
+                height: lineRect.height
+            )
+
+            context.saveGState()
+            context.setBlendMode(.sourceAtop)
+            context.setFillColor(continuationFadeBlendColor.cgColor)
+            context.fill(fadeRect)
+            context.restoreGState()
+        }
+    }
+
     private func inactiveSpansForDisplay(spans: [ShrunkLinkSpan], activeRanges: [NSRange]) -> [ShrunkLinkSpan] {
         guard !activeRanges.isEmpty else {
             return spans
@@ -1881,6 +1996,15 @@ private final class ListBulletLayoutManager: NSLayoutManager {
 
     private func intersectsAnyActiveRange(_ range: NSRange, activeRanges: [NSRange]) -> Bool {
         activeRanges.contains { NSIntersectionRange($0, range).length > 0 }
+    }
+
+    private var continuationFadeBlendColor: NSColor {
+        NSColor(name: nil) { appearance in
+            if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+                return NSColor(white: 0, alpha: 0.28)
+            }
+            return NSColor(white: 1, alpha: 0.34)
+        }
     }
 
     private var primaryTextView: NSTextView? {
