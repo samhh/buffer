@@ -335,6 +335,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             return nil
         }
         if event.keyCode == 6, modifiers.contains(.command) {
+            if modifiers.contains(.shift) || isEditingSearchInputField() {
+                return event
+            }
             undoLastDeletedNote()
             return nil
         }
@@ -374,6 +377,13 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         default:
             return event
         }
+    }
+
+    private func isEditingSearchInputField() -> Bool {
+        guard let firstResponder = window.firstResponder as? NSTextView else {
+            return false
+        }
+        return firstResponder.isFieldEditor
     }
 
     private func handleInNoteFindKey(_ event: NSEvent) -> NSEvent? {
