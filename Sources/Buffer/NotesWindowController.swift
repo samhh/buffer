@@ -232,6 +232,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         }
 
         mouseMoveMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+            if self?.searchState.isPresented == true {
+                self?.searchState.hoverSelectionEnabled = true
+            }
             self?.updateWindowControlsVisibility()
             return event
         }
@@ -276,6 +279,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         }
         searchState.highlightColors = NoteSearchState.mochaAccentColors.shuffled()
         searchState.isPresented = true
+        searchState.hoverSelectionEnabled = true
         if let linkAwareTextView = editorBridge.textView as? LineDeleteOnCutTextView {
             linkAwareTextView.searchOverlayPresented = true
             linkAwareTextView.window?.invalidateCursorRects(for: linkAwareTextView)
@@ -332,10 +336,12 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             return nil
         case 125: // Down
             guard !searchState.results.isEmpty else { return nil }
+            searchState.hoverSelectionEnabled = false
             searchState.selectedIndex = min(searchState.selectedIndex + 1, searchState.results.count - 1)
             return nil
         case 126: // Up
             guard !searchState.results.isEmpty else { return nil }
+            searchState.hoverSelectionEnabled = false
             searchState.selectedIndex = max(searchState.selectedIndex - 1, 0)
             return nil
         case 36, 76: // Return
@@ -606,6 +612,7 @@ private final class NoteSearchState: ObservableObject {
     @Published var query = ""
     @Published var results: [NoteSearchResult] = []
     @Published var selectedIndex = 0
+    @Published var hoverSelectionEnabled = true
     @Published var highlightColors: [Color] = mochaAccentColors
 
     static let mochaAccentColors: [Color] = [
@@ -698,6 +705,7 @@ private struct NoteEditorView: View {
                         get: { searchState.selectedIndex },
                         set: { searchState.selectedIndex = $0 }
                     ),
+                    hoverSelectionEnabled: searchState.hoverSelectionEnabled,
                     highlightColors: searchState.highlightColors,
                     onClose: onCloseSearch,
                     onSelect: onSelectResult,
@@ -938,6 +946,7 @@ private struct SearchOverlayView: View {
     @Binding var query: String
     let results: [NoteSearchResult]
     @Binding var selectedIndex: Int
+    let hoverSelectionEnabled: Bool
     let highlightColors: [Color]
     let onClose: () -> Void
     let onSelect: (NoteSearchResult) -> Void
@@ -948,6 +957,7 @@ private struct SearchOverlayView: View {
     @State private var hoveredIndex: Int?
     @State private var hoveredPinIndex: Int?
     @State private var hoveredTrashIndex: Int?
+    @State private var suppressNextSelectionAutoScroll = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -994,6 +1004,10 @@ private struct SearchOverlayView: View {
                     scrollSelectionIntoView(using: proxy)
                 }
                 .onChange(of: selectedIndex) { _, _ in
+                    if suppressNextSelectionAutoScroll {
+                        suppressNextSelectionAutoScroll = false
+                        return
+                    }
                     scrollSelectionIntoView(using: proxy)
                 }
                 .onChange(of: results.map(\.id)) { _, _ in
@@ -1025,8 +1039,9 @@ private struct SearchOverlayView: View {
     }
 
     private func resultRow(index: Int, result: NoteSearchResult) -> some View {
-        let isActive = index == selectedIndex || index == hoveredIndex
-        let showsActions = index == hoveredIndex
+        let effectiveHoveredIndex = hoverSelectionEnabled ? hoveredIndex : nil
+        let isActive = index == selectedIndex || index == effectiveHoveredIndex
+        let showsActions = index == effectiveHoveredIndex
 
         return HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
@@ -1058,8 +1073,11 @@ private struct SearchOverlayView: View {
             case .active:
                 NSCursor.pointingHand.set()
                 hoveredIndex = index
-                selectedIndex = index
-                onHoverResultIndex(index)
+                if hoverSelectionEnabled {
+                    suppressNextSelectionAutoScroll = true
+                    selectedIndex = index
+                    onHoverResultIndex(index)
+                }
             case .ended:
                 if hoveredIndex == index {
                     hoveredIndex = nil
