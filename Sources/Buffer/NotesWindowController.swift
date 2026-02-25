@@ -1044,6 +1044,8 @@ private struct SearchOverlayView: View {
         let showsActions = index == effectiveHoveredIndex
 
         return HStack(alignment: .center, spacing: 8) {
+            TitlePatternIcon(title: result.title)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(result.title)
                     .font(.system(size: 13, weight: .semibold))
