@@ -337,6 +337,20 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             return nil
         }
 
+        let isCommandUp = modifiers.contains(.command) && (event.keyCode == 126 || event.keyCode == 116 || event.keyCode == 115)
+        if isCommandUp {
+            searchState.hoverSelectionEnabled = false
+            searchState.selectedResultID = searchState.results.first?.id
+            return nil
+        }
+
+        let isCommandDown = modifiers.contains(.command) && (event.keyCode == 125 || event.keyCode == 121 || event.keyCode == 119)
+        if isCommandDown {
+            searchState.hoverSelectionEnabled = false
+            searchState.selectedResultID = searchState.results.last?.id
+            return nil
+        }
+
         switch event.keyCode {
         case 53: // Escape
             hideSearch(refocusEditor: true)
