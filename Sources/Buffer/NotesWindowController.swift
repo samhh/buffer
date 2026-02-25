@@ -1161,10 +1161,19 @@ private struct SearchOverlayView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                 if !result.snippet.isEmpty {
-                    Text(highlightedSnippet(line: result.snippet, query: query))
-                        .font(.system(size: 12))
-                        .foregroundStyle(isActive ? .primary : .secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Text(result.matchCount >= 10 ? "∞" : "\(result.matchCount)")
+                            .font(.system(size: 11))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, result.matchCount >= 10 ? 0 : 1.5)
+                            .frame(width: 14, alignment: .leading)
+                        Text(highlightedSnippet(line: result.snippet, query: query))
+                            .font(.system(size: 12))
+                            .foregroundStyle(isActive ? .primary : .secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1276,7 +1285,8 @@ private struct SearchOverlayView: View {
     }
 
     private func highlightedSnippet(line: String, query: String) -> AttributedString {
-        let snippet = line.replacingOccurrences(of: #"^\s+"#, with: "", options: .regularExpression)
+        let excerpt = snippetExcerpt(line: line, query: query)
+        let snippet = excerpt.text
         var attributed = AttributedString(snippet)
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else {
@@ -1285,19 +1295,138 @@ private struct SearchOverlayView: View {
 
         let lowerLine = snippet.lowercased()
         let lowerQuery = trimmedQuery.lowercased()
-        var searchStart = lowerLine.startIndex
+        let highlightStart = lowerLine.index(lowerLine.startIndex, offsetBy: excerpt.highlightableLowerBoundOffset)
+        let highlightEnd = lowerLine.index(lowerLine.startIndex, offsetBy: excerpt.highlightableUpperBoundOffset)
+        var searchStart = highlightStart
+        var highlightedAny = false
 
-        while searchStart < lowerLine.endIndex,
-              let foundRange = lowerLine.range(of: lowerQuery, options: [], range: searchStart..<lowerLine.endIndex) {
+        while searchStart < highlightEnd,
+              let foundRange = lowerLine.range(of: lowerQuery, options: [], range: searchStart..<highlightEnd) {
             if let lower = AttributedString.Index(foundRange.lowerBound, within: attributed),
                let upper = AttributedString.Index(foundRange.upperBound, within: attributed) {
                 attributed[lower..<upper].foregroundColor = .primary
                 attributed[lower..<upper].backgroundColor = .init(Color(nsColor: .selectedTextBackgroundColor))
+                highlightedAny = true
             }
             searchStart = foundRange.upperBound
         }
+
+        if !highlightedAny,
+           let fallbackLowerOffset = excerpt.firstMatchLowerBoundOffset,
+           let fallbackUpperOffset = excerpt.firstMatchUpperBoundOffset,
+           fallbackUpperOffset > fallbackLowerOffset {
+            let lower = lowerLine.index(lowerLine.startIndex, offsetBy: fallbackLowerOffset)
+            let upper = lowerLine.index(lowerLine.startIndex, offsetBy: fallbackUpperOffset)
+            if let attributedLower = AttributedString.Index(lower, within: attributed),
+               let attributedUpper = AttributedString.Index(upper, within: attributed) {
+                attributed[attributedLower..<attributedUpper].foregroundColor = .primary
+                attributed[attributedLower..<attributedUpper].backgroundColor = .init(Color(nsColor: .selectedTextBackgroundColor))
+            }
+        }
         return attributed
     }
+
+    private func snippetExcerpt(line: String, query: String, maxLength: Int = 64, leftContext: Int = 6) -> SnippetExcerpt {
+        let trimmedLine = line.replacingOccurrences(of: #"^\s+"#, with: "", options: .regularExpression)
+        guard trimmedLine.count > maxLength else {
+            return SnippetExcerpt(
+                text: trimmedLine,
+                highlightableLowerBoundOffset: 0,
+                highlightableUpperBoundOffset: trimmedLine.count,
+                firstMatchLowerBoundOffset: nil,
+                firstMatchUpperBoundOffset: nil
+            )
+        }
+
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty,
+              let matchRange = trimmedLine.range(of: trimmedQuery, options: [.caseInsensitive, .diacriticInsensitive], locale: .current) else {
+            let end = trimmedLine.index(trimmedLine.startIndex, offsetBy: max(0, maxLength - 3), limitedBy: trimmedLine.endIndex) ?? trimmedLine.endIndex
+            let text = String(trimmedLine[..<end]) + "..."
+            return SnippetExcerpt(
+                text: text,
+                highlightableLowerBoundOffset: 0,
+                highlightableUpperBoundOffset: max(0, text.count - 3),
+                firstMatchLowerBoundOffset: nil,
+                firstMatchUpperBoundOffset: nil
+            )
+        }
+
+        let lineLength = trimmedLine.count
+        let matchStartOffset = trimmedLine.distance(from: trimmedLine.startIndex, to: matchRange.lowerBound)
+        let matchEndOffset = trimmedLine.distance(from: trimmedLine.startIndex, to: matchRange.upperBound)
+
+        // Start with the strictest budget (both-side ellipses) and then expand if one side hits an edge.
+        let minimumCoreBudget = max(1, maxLength - 6)
+        let maxStartForCore = max(0, lineLength - minimumCoreBudget)
+        var startOffset = min(max(0, matchStartOffset - leftContext), maxStartForCore)
+        var endOffset = min(lineLength, startOffset + minimumCoreBudget)
+
+        if matchEndOffset > endOffset {
+            endOffset = min(lineLength, matchEndOffset)
+            startOffset = max(0, endOffset - minimumCoreBudget)
+        }
+
+        var hasLeftTrim = startOffset > 0
+        var hasRightTrim = endOffset < lineLength
+        var coreBudget = maxLength - (hasLeftTrim ? 3 : 0) - (hasRightTrim ? 3 : 0)
+        coreBudget = max(1, coreBudget)
+
+        var currentLength = endOffset - startOffset
+        if currentLength < coreBudget {
+            var remaining = coreBudget - currentLength
+            let rightRoom = lineLength - endOffset
+            let addRight = min(remaining, rightRoom)
+            endOffset += addRight
+            remaining -= addRight
+
+            if remaining > 0 {
+                let addLeft = min(remaining, startOffset)
+                startOffset -= addLeft
+            }
+
+            hasLeftTrim = startOffset > 0
+            hasRightTrim = endOffset < lineLength
+            coreBudget = maxLength - (hasLeftTrim ? 3 : 0) - (hasRightTrim ? 3 : 0)
+            coreBudget = max(1, coreBudget)
+            currentLength = endOffset - startOffset
+            if currentLength < coreBudget {
+                let trailingFill = min(coreBudget - currentLength, lineLength - endOffset)
+                endOffset += trailingFill
+            }
+        }
+
+        let start = trimmedLine.index(trimmedLine.startIndex, offsetBy: startOffset)
+        let end = trimmedLine.index(trimmedLine.startIndex, offsetBy: endOffset)
+        var excerpt = String(trimmedLine[start..<end])
+        if hasLeftTrim {
+            excerpt = "..." + excerpt
+        }
+        if hasRightTrim {
+            excerpt += "..."
+        }
+        let highlightStart = hasLeftTrim ? 3 : 0
+        let highlightEnd = excerpt.count - (hasRightTrim ? 3 : 0)
+        let visibleMatchStart = max(matchStartOffset, startOffset)
+        let visibleMatchEnd = min(matchEndOffset, endOffset)
+        let firstMatchLowerBoundOffset: Int? = visibleMatchStart < visibleMatchEnd ? highlightStart + (visibleMatchStart - startOffset) : nil
+        let firstMatchUpperBoundOffset: Int? = visibleMatchStart < visibleMatchEnd ? highlightStart + (visibleMatchEnd - startOffset) : nil
+        return SnippetExcerpt(
+            text: excerpt,
+            highlightableLowerBoundOffset: highlightStart,
+            highlightableUpperBoundOffset: highlightEnd,
+            firstMatchLowerBoundOffset: firstMatchLowerBoundOffset,
+            firstMatchUpperBoundOffset: firstMatchUpperBoundOffset
+        )
+    }
+}
+
+private struct SnippetExcerpt {
+    let text: String
+    let highlightableLowerBoundOffset: Int
+    let highlightableUpperBoundOffset: Int
+    let firstMatchLowerBoundOffset: Int?
+    let firstMatchUpperBoundOffset: Int?
 }
 
 private extension Color {

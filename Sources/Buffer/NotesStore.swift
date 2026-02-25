@@ -6,6 +6,7 @@ struct NoteSearchResult: Identifiable {
     let fileURL: URL
     let title: String
     let snippet: String
+    let matchCount: Int
     let modifiedAt: Date
     let isPinned: Bool
 }
@@ -128,6 +129,7 @@ final class NotesStore: ObservableObject {
                         fileURL: fileURL,
                         title: firstLine,
                         snippet: "",
+                        matchCount: 0,
                         modifiedAt: modifiedAt,
                         isPinned: pinned
                     )
@@ -135,7 +137,22 @@ final class NotesStore: ObservableObject {
                 continue
             }
 
-            guard let matchLine = lines.first(where: { $0.localizedCaseInsensitiveContains(normalizedQuery) }) else {
+            var firstMatchLine: String?
+            var matchCount = 0
+            for line in lines {
+                let occurrences = line.caseInsensitiveOccurrences(of: normalizedQuery)
+                guard occurrences > 0 else { continue }
+                if firstMatchLine == nil {
+                    firstMatchLine = line
+                }
+                matchCount += occurrences
+                if matchCount >= 10 {
+                    matchCount = 10
+                    break
+                }
+            }
+
+            guard let matchLine = firstMatchLine else {
                 continue
             }
 
@@ -146,15 +163,20 @@ final class NotesStore: ObservableObject {
                     fileURL: fileURL,
                     title: title,
                     snippet: matchLine,
+                    matchCount: matchCount,
                     modifiedAt: modifiedAt,
                     isPinned: pinned
                 )
             )
         }
 
+        let isSearching = !normalizedQuery.isEmpty
         return results.sorted { lhs, rhs in
             if lhs.isPinned != rhs.isPinned {
                 return lhs.isPinned && !rhs.isPinned
+            }
+            if isSearching, lhs.matchCount != rhs.matchCount {
+                return lhs.matchCount > rhs.matchCount
             }
             if lhs.modifiedAt != rhs.modifiedAt {
                 return lhs.modifiedAt > rhs.modifiedAt
@@ -390,5 +412,19 @@ final class NotesStore: ObservableObject {
             let result = removexattr(path, Self.pinnedXAttrName, 0)
             return result == 0 || errno == ENOATTR
         }
+    }
+}
+
+private extension String {
+    func caseInsensitiveOccurrences(of query: String) -> Int {
+        guard !query.isEmpty else { return 0 }
+        var count = 0
+        var searchRange = startIndex..<endIndex
+
+        while let found = range(of: query, options: [.caseInsensitive], range: searchRange) {
+            count += 1
+            searchRange = found.upperBound..<endIndex
+        }
+        return count
     }
 }
