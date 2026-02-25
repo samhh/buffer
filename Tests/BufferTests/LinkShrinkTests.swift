@@ -22,6 +22,14 @@ final class LinkShrinkTests: XCTestCase {
         XCTAssertEqual(spans[0].urlString, "https://example.com/path/end")
     }
 
+    func testDetectLinksExcludesTrailingPunctuationWhenPathEndsInNumber() {
+        let text = "See github.com/org/repo/issues/14821."
+        let spans = LinkShrink.detectLinks(in: text as NSString)
+
+        XCTAssertEqual(spans.count, 1)
+        XCTAssertEqual(spans[0].urlString, "github.com/org/repo/issues/14821")
+    }
+
     func testDetectLinksDoesNotConsumeTrailingWhitespace() {
         let text = "before https://example.com/long/path after"
         let nsText = text as NSString
@@ -36,6 +44,11 @@ final class LinkShrinkTests: XCTestCase {
     func testDisplayTextUsesHostAndTailForDeepPath() {
         let url = "https://docs.google.com/document/d/1abc1234567890/edit?usp=sharing"
         XCTAssertEqual(LinkShrink.displayText(for: url), "docs.google.com/.../edit")
+    }
+
+    func testDisplayTextPreservesTrailingSlashInPathTail() {
+        let url = "https://github.com/org/repo/issues/14821/"
+        XCTAssertEqual(LinkShrink.displayText(for: url), "github.com/.../14821/")
     }
 
     func testDisplayTextDropsLeadingWWWSubdomain() {

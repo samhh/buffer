@@ -22,6 +22,7 @@ struct ShrunkLinkSpan: Equatable {
 
 enum LinkShrink {
     private static let detector: NSDataDetector? = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    private static let trailingURLPunctuationScalars = CharacterSet(charactersIn: ".,;:!?)]}\"'>")
     private static let shortURLThreshold = 36
     private static let fallbackMaxLength = 34
     private static let fallbackHeadLength = 16
@@ -80,7 +81,10 @@ enum LinkShrink {
                 .split(separator: "/")
                 .map(String.init)
                 .filter { !$0.isEmpty }
-            let pathTail = pathSegments.last
+            let hasTrailingSlash = components.path.hasSuffix("/")
+            let pathTail = pathSegments.last.map { segment in
+                hasTrailingSlash ? segment + "/" : segment
+            }
             let queryTail = queryTailText(from: components)
 
             if let host, !host.isEmpty {
@@ -167,6 +171,14 @@ enum LinkShrink {
                 break
             }
             _ = scalar
+            upper -= 1
+        }
+
+        while upper > lower {
+            guard let scalar = UnicodeScalar(text.character(at: upper - 1)),
+                  trailingURLPunctuationScalars.contains(scalar) else {
+                break
+            }
             upper -= 1
         }
 

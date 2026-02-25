@@ -1966,12 +1966,14 @@ private final class ListBulletLayoutManager: NSLayoutManager {
         guard let textView = primaryTextView as? LineDeleteOnCutTextView else {
             return
         }
+        guard let textContainer = textContainers.first else { return }
+        let textStorageString = textStorage?.string as NSString?
         let spans = inactiveSpansForDisplay(
             spans: textView.linkSpansForDisplay,
             activeRanges: textView.activeLinkRangesForDisplay
         )
         let font = NSFont.systemFont(ofSize: 14)
-        let attributes: [NSAttributedString.Key: Any] = [
+        let baseAttributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: NSColor.linkColor
         ]
@@ -2001,6 +2003,26 @@ private final class ListBulletLayoutManager: NSLayoutManager {
 
             NSGraphicsContext.current?.saveGraphicsState()
             NSBezierPath(rect: clipRect).addClip()
+            var attributes = baseAttributes
+            if span.displayText.count > 1 {
+                let targetWidth = boundingRect(forGlyphRange: glyphRange, in: textContainer).width
+                let displayWidth = (span.displayText as NSString).size(withAttributes: [.font: font]).width
+                // If the draw-time label is narrower than the glyph run, spread it to avoid a trailing gap.
+                var extraWidth = targetWidth - displayWidth
+                if extraWidth <= 0.15,
+                   let textStorageString,
+                   span.range.location != NSNotFound,
+                   span.range.length > 0,
+                   NSMaxRange(span.range) <= textStorageString.length {
+                    let originalText = textStorageString.substring(with: span.range)
+                    let originalWidth = (originalText as NSString).size(withAttributes: [.font: font]).width
+                    extraWidth = originalWidth - displayWidth
+                }
+                if extraWidth > 0.15 {
+                    let kern = extraWidth / CGFloat(span.displayText.count - 1)
+                    attributes[.kern] = kern
+                }
+            }
             (span.displayText as NSString).draw(at: drawPoint, withAttributes: attributes)
             NSGraphicsContext.current?.restoreGraphicsState()
         }
