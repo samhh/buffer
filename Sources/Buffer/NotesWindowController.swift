@@ -23,6 +23,8 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     private var keyMonitor: Any?
     private var mouseMoveMonitor: Any?
     private var didResignActiveObserver: NSObjectProtocol?
+    private var inNoteFindHighlightedRange: NSRange?
+    private var inNoteFindSecondaryRanges: [NSRange] = []
 
     init(store: NotesStore) {
         self.store = store
@@ -431,6 +433,13 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     }
 
     private func hideInNoteFind(refocusEditor: Bool) {
+        let finalSelection = inNoteFindHighlightedRange
+        clearInNoteFindHighlight()
+        if let finalSelection,
+           let textView = editorBridge.textView {
+            textView.setSelectedRange(finalSelection)
+            textView.scrollRangeToVisible(finalSelection)
+        }
         inNoteFindState.isPresented = false
         inNoteFindState.query = ""
         inNoteFindState.matchCount = 0
@@ -566,6 +575,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
+            clearInNoteFindHighlight(in: textView)
             inNoteFindState.matchCount = 0
             inNoteFindState.currentMatchIndex = 0
             return
@@ -574,15 +584,14 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         let ranges = findRanges(in: textView.string as NSString, query: trimmed)
         inNoteFindState.matchCount = ranges.count
         guard !ranges.isEmpty else {
+            clearInNoteFindHighlight(in: textView)
             inNoteFindState.currentMatchIndex = 0
             return
         }
 
         let selection = textView.selectedRange()
         let index = ranges.firstIndex(where: { $0.location >= selection.location }) ?? 0
-        // Keep focus in the inline find field while typing.
-        textView.setSelectedRange(ranges[index])
-        textView.scrollRangeToVisible(ranges[index])
+        highlightInNoteFindRanges(ranges, activeRange: ranges[index], in: textView)
         inNoteFindState.currentMatchIndex = index + 1
     }
 
@@ -595,7 +604,9 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         guard !ranges.isEmpty else { return }
 
         let current = textView.selectedRange()
-        let currentIndex = ranges.firstIndex(where: { NSEqualRanges($0, current) })
+        let currentIndex = inNoteFindHighlightedRange.flatMap { highlighted in
+            ranges.firstIndex(where: { NSEqualRanges($0, highlighted) })
+        }
         let targetIndex: Int
         if let currentIndex {
             if forward {
@@ -610,14 +621,56 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         }
 
         let target = ranges[targetIndex]
-        selectInNoteFindRange(target, in: textView)
+        highlightInNoteFindRanges(ranges, activeRange: target, in: textView)
         inNoteFindState.currentMatchIndex = targetIndex + 1
         inNoteFindState.matchCount = ranges.count
     }
 
-    private func selectInNoteFindRange(_ range: NSRange, in textView: NSTextView) {
-        textView.setSelectedRange(range)
-        textView.scrollRangeToVisible(range)
+    private func highlightInNoteFindRanges(_ ranges: [NSRange], activeRange: NSRange, in textView: NSTextView) {
+        guard let layoutManager = textView.layoutManager else {
+            return
+        }
+        clearInNoteFindHighlight(in: textView)
+        for range in ranges where !NSEqualRanges(range, activeRange) {
+            layoutManager.addTemporaryAttribute(
+                .backgroundColor,
+                value: NSColor.systemBlue.withAlphaComponent(0.22),
+                forCharacterRange: range
+            )
+            inNoteFindSecondaryRanges.append(range)
+        }
+        layoutManager.addTemporaryAttribute(
+            .backgroundColor,
+            value: NSColor.systemBlue.withAlphaComponent(0.9),
+            forCharacterRange: activeRange
+        )
+        layoutManager.addTemporaryAttribute(
+            .foregroundColor,
+            value: NSColor.white,
+            forCharacterRange: activeRange
+        )
+        // Keep find-field focus while anchoring navigation at the highlighted match.
+        textView.setSelectedRange(NSRange(location: activeRange.location, length: 0))
+        textView.scrollRangeToVisible(activeRange)
+        inNoteFindHighlightedRange = activeRange
+    }
+
+    private func clearInNoteFindHighlight(in textView: NSTextView? = nil) {
+        let target = textView ?? editorBridge.textView
+        guard let textView = target,
+              let layoutManager = textView.layoutManager else {
+            inNoteFindHighlightedRange = nil
+            return
+        }
+        if let previous = inNoteFindHighlightedRange {
+            layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: previous)
+            layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: previous)
+        }
+        for range in inNoteFindSecondaryRanges {
+            layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: range)
+        }
+        inNoteFindSecondaryRanges.removeAll(keepingCapacity: true)
+        inNoteFindHighlightedRange = nil
     }
 
     private func findRanges(in text: NSString, query: String) -> [NSRange] {
@@ -1108,7 +1161,7 @@ private struct SearchOverlayView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                 if !result.snippet.isEmpty {
-                    Text(highlightedSnippet(line: result.snippet, query: query, colors: highlightColors))
+                    Text(highlightedSnippet(line: result.snippet, query: query))
                         .font(.system(size: 12))
                         .foregroundStyle(isActive ? .primary : .secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1222,28 +1275,26 @@ private struct SearchOverlayView: View {
         .frame(width: 40, height: 16, alignment: .trailing)
     }
 
-    private func highlightedSnippet(line: String, query: String, colors: [Color]) -> AttributedString {
-        var attributed = AttributedString(line)
+    private func highlightedSnippet(line: String, query: String) -> AttributedString {
+        let snippet = line.replacingOccurrences(of: #"^\s+"#, with: "", options: .regularExpression)
+        var attributed = AttributedString(snippet)
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else {
             return attributed
         }
 
-        let lowerLine = line.lowercased()
+        let lowerLine = snippet.lowercased()
         let lowerQuery = trimmedQuery.lowercased()
         var searchStart = lowerLine.startIndex
-        var matchIndex = 0
 
         while searchStart < lowerLine.endIndex,
               let foundRange = lowerLine.range(of: lowerQuery, options: [], range: searchStart..<lowerLine.endIndex) {
             if let lower = AttributedString.Index(foundRange.lowerBound, within: attributed),
                let upper = AttributedString.Index(foundRange.upperBound, within: attributed) {
-                let color = colors[matchIndex % colors.count]
                 attributed[lower..<upper].foregroundColor = .primary
-                attributed[lower..<upper].backgroundColor = .init(color.opacity(0.78))
+                attributed[lower..<upper].backgroundColor = .init(Color(nsColor: .selectedTextBackgroundColor))
             }
             searchStart = foundRange.upperBound
-            matchIndex += 1
         }
         return attributed
     }
