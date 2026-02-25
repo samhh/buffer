@@ -979,15 +979,27 @@ private struct SearchOverlayView: View {
                     )
             )
 
-            ScrollView {
-                VStack(spacing: 2) {
-                    ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
-                        resultRow(index: index, result: result)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
+                            resultRow(index: index, result: result)
+                                .id(index)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxHeight: 220)
+                .onAppear {
+                    scrollSelectionIntoView(using: proxy)
+                }
+                .onChange(of: selectedIndex) { _, _ in
+                    scrollSelectionIntoView(using: proxy)
+                }
+                .onChange(of: results.map(\.id)) { _, _ in
+                    scrollSelectionIntoView(using: proxy)
+                }
             }
-            .frame(maxHeight: 220)
         }
         .padding(10)
         .background(
@@ -1002,6 +1014,13 @@ private struct SearchOverlayView: View {
             DispatchQueue.main.async {
                 searchFocused = true
             }
+        }
+    }
+
+    private func scrollSelectionIntoView(using proxy: ScrollViewProxy) {
+        guard results.indices.contains(selectedIndex) else { return }
+        DispatchQueue.main.async {
+            proxy.scrollTo(selectedIndex, anchor: .center)
         }
     }
 
