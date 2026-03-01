@@ -1,12 +1,6 @@
+import AppKit
 import Carbon
 import Foundation
-import AppKit
-
-struct HotKeyOption: Identifiable {
-    let id: UInt32
-    let keyCode: UInt32
-    let label: String
-}
 
 enum AppearanceMode: String, CaseIterable, Identifiable {
     case system
@@ -27,46 +21,26 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
     }
 }
 
-enum HotKeyCatalog {
-    static let options: [HotKeyOption] = [
-        HotKeyOption(id: 49, keyCode: 49, label: "Space"),
-        HotKeyOption(id: 0, keyCode: 0, label: "A"),
-        HotKeyOption(id: 11, keyCode: 11, label: "B"),
-        HotKeyOption(id: 8, keyCode: 8, label: "C"),
-        HotKeyOption(id: 2, keyCode: 2, label: "D"),
-        HotKeyOption(id: 14, keyCode: 14, label: "E"),
-        HotKeyOption(id: 3, keyCode: 3, label: "F"),
-        HotKeyOption(id: 5, keyCode: 5, label: "G"),
-        HotKeyOption(id: 4, keyCode: 4, label: "H"),
-        HotKeyOption(id: 34, keyCode: 34, label: "I"),
-        HotKeyOption(id: 38, keyCode: 38, label: "J"),
-        HotKeyOption(id: 40, keyCode: 40, label: "K"),
-        HotKeyOption(id: 37, keyCode: 37, label: "L"),
-        HotKeyOption(id: 46, keyCode: 46, label: "M"),
-        HotKeyOption(id: 45, keyCode: 45, label: "N"),
-        HotKeyOption(id: 31, keyCode: 31, label: "O"),
-        HotKeyOption(id: 35, keyCode: 35, label: "P"),
-        HotKeyOption(id: 12, keyCode: 12, label: "Q"),
-        HotKeyOption(id: 15, keyCode: 15, label: "R"),
-        HotKeyOption(id: 1, keyCode: 1, label: "S"),
-        HotKeyOption(id: 17, keyCode: 17, label: "T"),
-        HotKeyOption(id: 32, keyCode: 32, label: "U"),
-        HotKeyOption(id: 9, keyCode: 9, label: "V"),
-        HotKeyOption(id: 13, keyCode: 13, label: "W"),
-        HotKeyOption(id: 7, keyCode: 7, label: "X"),
-        HotKeyOption(id: 16, keyCode: 16, label: "Y"),
-        HotKeyOption(id: 6, keyCode: 6, label: "Z"),
-    ]
-
-    static func label(for keyCode: UInt32) -> String {
-        options.first(where: { $0.keyCode == keyCode })?.label ?? "Unknown"
-    }
-}
-
 @MainActor
 final class PreferencesStore: ObservableObject {
     @Published var hotKeyKeyCode: UInt32 {
         didSet { persist() }
+    }
+    @Published var hotKeyKey: String {
+        didSet {
+            let normalized = KeyboardLayoutMapper.normalizedKey(hotKeyKey)
+            guard !normalized.isEmpty else {
+                hotKeyKey = oldValue
+                return
+            }
+
+            if hotKeyKey != normalized {
+                hotKeyKey = normalized
+                return
+            }
+
+            refreshResolvedHotKeyKeyCode()
+        }
     }
     @Published var hotKeyModifiers: UInt32 {
         didSet { persist() }
@@ -81,18 +55,24 @@ final class PreferencesStore: ObservableObject {
     private let defaults = UserDefaults.standard
 
     init() {
-        let defaultKeyCode = UInt32(45) // N
+        let defaultKey = "n"
         let defaultModifiers = UInt32(optionKey)
-        hotKeyKeyCode = UInt32(defaults.integer(forKey: Keys.hotKeyCode))
+        let storedKeyCode = UInt32(defaults.integer(forKey: Keys.hotKeyCode))
+        let storedKey = KeyboardLayoutMapper.normalizedKey(defaults.string(forKey: Keys.hotKey))
+        let key = storedKey.isEmpty ? (KeyboardLayoutMapper.keyEquivalent(for: storedKeyCode) ?? defaultKey) : storedKey
+
+        hotKeyKeyCode = storedKeyCode
+        hotKeyKey = key
         hotKeyModifiers = UInt32(defaults.integer(forKey: Keys.hotKeyModifiers))
         launchAtLoginEnabled = defaults.object(forKey: Keys.launchAtLoginEnabled) as? Bool ?? false
         appearanceMode = AppearanceMode(rawValue: defaults.string(forKey: Keys.appearanceMode) ?? "") ?? .system
 
-        if hotKeyKeyCode == 0 && hotKeyModifiers == 0 {
-            hotKeyKeyCode = defaultKeyCode
+        if defaults.object(forKey: Keys.hotKey) == nil && defaults.object(forKey: Keys.hotKeyCode) == nil && defaults.object(forKey: Keys.hotKeyModifiers) == nil {
+            hotKeyKey = defaultKey
             hotKeyModifiers = defaultModifiers
-            persist()
         }
+
+        refreshResolvedHotKeyKeyCode()
     }
 
     var hotKeyDisplay: String {
@@ -105,18 +85,28 @@ final class PreferencesStore: ObservableObject {
         if hotKeyModifiers & UInt32(optionKey) != 0 { parts.append("⌥") }
         if hotKeyModifiers & UInt32(shiftKey) != 0 { parts.append("⇧") }
         if hotKeyModifiers & UInt32(cmdKey) != 0 { parts.append("⌘") }
-        parts.append(HotKeyCatalog.label(for: hotKeyKeyCode))
+        parts.append(KeyboardLayoutMapper.displayLabel(for: hotKeyKey))
         return parts.joined()
     }
 
-    func updateHotKey(keyCode: UInt32, eventModifiers: NSEvent.ModifierFlags) {
+    func updateHotKey(key: String, eventModifiers: NSEvent.ModifierFlags) {
         let mapped = Self.carbonModifiers(from: eventModifiers)
         guard mapped != 0 else {
             return
         }
 
-        hotKeyKeyCode = keyCode
+        hotKeyKey = key
         hotKeyModifiers = mapped
+    }
+
+    func refreshResolvedHotKeyKeyCode() {
+        if let resolved = KeyboardLayoutMapper.keyCode(for: hotKeyKey) {
+            hotKeyKeyCode = resolved
+            return
+        }
+
+        // Keep existing key code when the current input source cannot map the key.
+        persist()
     }
 
     static func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
@@ -129,6 +119,7 @@ final class PreferencesStore: ObservableObject {
     }
 
     private func persist() {
+        defaults.set(hotKeyKey, forKey: Keys.hotKey)
         defaults.set(Int(hotKeyKeyCode), forKey: Keys.hotKeyCode)
         defaults.set(Int(hotKeyModifiers), forKey: Keys.hotKeyModifiers)
         defaults.set(launchAtLoginEnabled, forKey: Keys.launchAtLoginEnabled)
@@ -136,6 +127,7 @@ final class PreferencesStore: ObservableObject {
     }
 
     private enum Keys {
+        static let hotKey = "preferences.hotkey.key"
         static let hotKeyCode = "preferences.hotkey.keycode"
         static let hotKeyModifiers = "preferences.hotkey.modifiers"
         static let launchAtLoginEnabled = "preferences.launchAtLoginEnabled"

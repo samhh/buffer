@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyManager: HotKeyManager?
     private var launchAtLoginManager: LaunchAtLoginManager?
     private var cancellables: Set<AnyCancellable> = []
+    private let inputSourceDidChangeName = Notification.Name(rawValue: "com.apple.HIToolbox.selectedKeyboardInputSourceChanged")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -64,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         bindPreferences(preferences)
+        observeInputSourceChanges()
     }
 
     private func bindPreferences(_ preferences: PreferencesStore) {
@@ -109,6 +111,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if hotKeyManager == nil {
             print("Failed to register hotkey: keyCode=\(keyCode), modifiers=\(modifiers)")
         }
+    }
+
+    private func observeInputSourceChanges() {
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleInputSourceChanged),
+            name: inputSourceDidChangeName,
+            object: nil
+        )
+    }
+
+    @objc
+    private func handleInputSourceChanged(_ notification: Notification) {
+        preferences?.refreshResolvedHotKeyKeyCode()
+    }
+
+    deinit {
+        DistributedNotificationCenter.default().removeObserver(self)
     }
 
     func openSettingsWindow() {

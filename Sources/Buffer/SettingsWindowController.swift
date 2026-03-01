@@ -161,7 +161,11 @@ private struct ShortcutRecorderField: View {
                 return nil
             }
 
-            preferences.updateHotKey(keyCode: UInt32(event.keyCode), eventModifiers: modifiers)
+            guard let key = KeyboardLayoutMapper.normalizedKey(from: event) else {
+                return nil
+            }
+
+            preferences.updateHotKey(key: key, eventModifiers: modifiers)
             stopRecording()
             return nil
         }

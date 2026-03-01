@@ -42,6 +42,7 @@ final class PreferencesStoreTests: XCTestCase {
 
     private static func clearPreferenceKeys() {
         let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "preferences.hotkey.key")
         defaults.removeObject(forKey: "preferences.hotkey.keycode")
         defaults.removeObject(forKey: "preferences.hotkey.modifiers")
         defaults.removeObject(forKey: "preferences.launchAtLoginEnabled")
