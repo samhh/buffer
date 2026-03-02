@@ -30,6 +30,32 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     private let normalDefaultFrame = NSRect(x: 0, y: 0, width: 500, height: 400)
     private let writingDefaultFrame = NSRect(x: 0, y: 0, width: 900, height: 700)
 
+    private func hasOnlyCommandModifiers(_ modifiers: NSEvent.ModifierFlags) -> Bool {
+        let relevant = modifiers.intersection(.deviceIndependentFlagsMask)
+        return relevant == [.command]
+    }
+
+    private func matchesCommandKey(
+        _ event: NSEvent,
+        key: String,
+        allowShift: Bool = false
+    ) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if allowShift {
+            guard modifiers.contains(.command),
+                  !modifiers.contains(.option),
+                  !modifiers.contains(.control) else {
+                return false
+            }
+        } else {
+            guard hasOnlyCommandModifiers(modifiers) else {
+                return false
+            }
+        }
+
+        return KeyboardLayoutMapper.normalizedKey(from: event) == key
+    }
+
     init(store: NotesStore) {
         self.store = store
         let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
@@ -141,21 +167,21 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
                 return nil
             }
 
-            let isCommandN = event.keyCode == 45 && modifiers.contains(.command)
+            let isCommandN = self.matchesCommandKey(event, key: "n")
             if isCommandN {
                 self.createNewNoteAndShow()
                 return nil
             }
 
-            let isCommandD = event.keyCode == 2 && modifiers.contains(.command)
+            let isCommandD = self.matchesCommandKey(event, key: "d")
             if isCommandD {
                 _ = self.store.deleteCurrentNote()
                 self.requestEditorFocus()
                 return nil
             }
 
-            let isCommandZ = event.keyCode == 6 && modifiers.contains(.command) && !modifiers.contains(.shift)
-            let isCommandShiftZ = event.keyCode == 6 && modifiers.contains(.command) && modifiers.contains(.shift)
+            let isCommandZ = self.matchesCommandKey(event, key: "z")
+            let isCommandShiftZ = self.matchesCommandKey(event, key: "z", allowShift: true) && modifiers.contains(.shift)
             if isCommandZ, self.store.deletedNoteToast != nil {
                 self.undoLastDeletedNote()
                 self.requestEditorFocus()
@@ -209,20 +235,20 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
                 return nil
             }
 
-            let isCommandP = event.keyCode == 35 && modifiers.contains(.command)
-            let isCommandShiftF = event.keyCode == 3 && modifiers.contains(.command) && modifiers.contains(.shift)
+            let isCommandP = self.matchesCommandKey(event, key: "p")
+            let isCommandShiftF = self.matchesCommandKey(event, key: "f", allowShift: true) && modifiers.contains(.shift)
             if isCommandP || isCommandShiftF {
                 self.showSearch()
                 return nil
             }
 
-            let isCommandF = event.keyCode == 3 && modifiers.contains(.command)
+            let isCommandF = self.matchesCommandKey(event, key: "f")
             if isCommandF {
                 self.showInNoteFind()
                 return nil
             }
 
-            let isCommandG = event.keyCode == 5 && modifiers.contains(.command)
+            let isCommandG = self.matchesCommandKey(event, key: "g", allowShift: true)
             if isCommandG {
                 if self.inNoteFindState.isPresented {
                     self.navigateInNoteFind(forward: !modifiers.contains(.shift))
@@ -346,19 +372,19 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     private func handleSearchKey(_ event: NSEvent) -> NSEvent? {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if event.keyCode == 35, modifiers.contains(.command), modifiers.contains(.shift) {
+        if matchesCommandKey(event, key: "p", allowShift: true), modifiers.contains(.shift) {
             togglePinnedSelectedSearchResult()
             return nil
         }
-        if event.keyCode == 35, modifiers.contains(.command), !modifiers.contains(.shift) {
+        if matchesCommandKey(event, key: "p") {
             hideSearch(refocusEditor: true)
             return nil
         }
-        if event.keyCode == 2, modifiers.contains(.command) {
+        if matchesCommandKey(event, key: "d") {
             deleteSelectedSearchResult()
             return nil
         }
-        if event.keyCode == 6, modifiers.contains(.command) {
+        if matchesCommandKey(event, key: "z", allowShift: true) {
             if modifiers.contains(.shift) || isEditingSearchInputField() {
                 return event
             }
@@ -412,11 +438,11 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
     private func handleInNoteFindKey(_ event: NSEvent) -> NSEvent? {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if event.keyCode == 3, modifiers.contains(.command) {
+        if matchesCommandKey(event, key: "f") {
             hideInNoteFind(refocusEditor: true)
             return nil
         }
-        if event.keyCode == 5, modifiers.contains(.command) {
+        if matchesCommandKey(event, key: "g", allowShift: true) {
             navigateInNoteFind(forward: !modifiers.contains(.shift))
             return nil
         }
