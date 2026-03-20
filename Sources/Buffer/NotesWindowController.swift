@@ -1055,7 +1055,7 @@ private struct DeletedNoteToastView: View {
                 .padding(.vertical, 4)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(.white.opacity(0.14))
+                        .fill(colorScheme == .dark ? .white.opacity(0.14) : .black.opacity(0.12))
                 )
             }
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -1353,7 +1353,7 @@ private struct SearchOverlayView: View {
                             .padding(2)
                             .background(
                                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill(hoveredPinResultID == result.id ? .white.opacity(0.10) : .clear)
+                                    .fill(hoveredPinResultID == result.id ? (colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.10)) : .clear)
                             )
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
@@ -1374,7 +1374,7 @@ private struct SearchOverlayView: View {
                                 .padding(2)
                                 .background(
                                     RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .fill(hoveredTrashResultID == result.id ? .white.opacity(0.10) : .clear)
+                                        .fill(hoveredTrashResultID == result.id ? (colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.10)) : .clear)
                                 )
                         }
                         .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
