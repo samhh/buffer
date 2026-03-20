@@ -1948,6 +1948,202 @@ private final class LineDeleteOnCutTextView: NSTextView {
         super.insertNewline(sender)
     }
 
+    // MARK: - Indent-aware cursor navigation
+
+    /// Returns the character index just past the normalized indent on the line containing `location`.
+    private func indentEndOfLine(at location: Int) -> Int {
+        let nsText = string as NSString
+        guard nsText.length > 0 else { return 0 }
+        let safeLoc: Int
+        if location >= nsText.length {
+            let lastChar = nsText.character(at: nsText.length - 1)
+            if lastChar == 10 || lastChar == 13 { return location }
+            safeLoc = nsText.length - 1
+        } else {
+            safeLoc = location
+        }
+        let lineRange = nsText.lineRange(for: NSRange(location: safeLoc, length: 0))
+        var offset = 0
+        while offset < lineRange.length {
+            let pos = lineRange.location + offset
+            guard pos < nsText.length else { break }
+            let ch = nsText.character(at: pos)
+            guard ch == 0x20 else { break } // space
+            offset += 1
+        }
+        let indentSize = SmartListEditing.indentUnit.count
+        let normalized = (offset / indentSize) * indentSize
+        return lineRange.location + normalized
+    }
+
+    private func lineStartLocation(at location: Int) -> Int {
+        let nsText = string as NSString
+        guard nsText.length > 0 else { return 0 }
+        if location >= nsText.length {
+            let lastChar = nsText.character(at: nsText.length - 1)
+            if lastChar == 10 || lastChar == 13 { return location }
+            return nsText.lineRange(for: NSRange(location: nsText.length - 1, length: 0)).location
+        }
+        return nsText.lineRange(for: NSRange(location: location, length: 0)).location
+    }
+
+    /// Whether `location` is strictly inside the indent zone (between line start and indent end, exclusive).
+    private func isInIndentZone(_ location: Int) -> Bool {
+        let ls = lineStartLocation(at: location)
+        let ie = indentEndOfLine(at: location)
+        return ie > ls && location > ls && location < ie
+    }
+
+    private func snapCursorOutOfIndent(movingLeft: Bool) {
+        let sel = selectedRange()
+        guard sel.length == 0, isInIndentZone(sel.location) else { return }
+        let target = movingLeft ? lineStartLocation(at: sel.location) : indentEndOfLine(at: sel.location)
+        setSelectedRange(NSRange(location: target, length: 0))
+    }
+
+    private func snapSelectionOutOfIndent(before: NSRange, movingLeft: Bool) {
+        let after = selectedRange()
+        let afterLeft = after.location
+        let afterRight = after.location + after.length
+        let beforeRight = before.location + before.length
+
+        if afterLeft != before.location, isInIndentZone(afterLeft) {
+            let target = movingLeft ? lineStartLocation(at: afterLeft) : indentEndOfLine(at: afterLeft)
+            setSelectedRange(NSRange(location: target, length: afterRight - target))
+        } else if afterRight != beforeRight, isInIndentZone(afterRight) {
+            let target = movingLeft ? lineStartLocation(at: afterRight) : indentEndOfLine(at: afterRight)
+            setSelectedRange(NSRange(location: afterLeft, length: target - afterLeft))
+        }
+    }
+
+    // Home key / Cmd+Left: toggle between indent end and line start
+    override func moveToBeginningOfLine(_ sender: Any?) {
+        let sel = selectedRange()
+        let ie = indentEndOfLine(at: sel.location)
+        let ls = lineStartLocation(at: sel.location)
+        guard ie > ls else {
+            super.moveToBeginningOfLine(sender)
+            return
+        }
+        let target = (sel.location != ie) ? ie : ls
+        setSelectedRange(NSRange(location: target, length: 0))
+    }
+
+    override func moveToBeginningOfLineAndModifySelection(_ sender: Any?) {
+        let sel = selectedRange()
+        let ie = indentEndOfLine(at: sel.location)
+        let ls = lineStartLocation(at: sel.location)
+        guard ie > ls else {
+            super.moveToBeginningOfLineAndModifySelection(sender)
+            return
+        }
+        let target = (sel.location != ie) ? ie : ls
+        let right = sel.location + sel.length
+        if target < right {
+            setSelectedRange(NSRange(location: target, length: right - target))
+        } else {
+            setSelectedRange(NSRange(location: target, length: 0))
+        }
+    }
+
+    // Ctrl+A
+    override func moveToBeginningOfParagraph(_ sender: Any?) {
+        let sel = selectedRange()
+        let ie = indentEndOfLine(at: sel.location)
+        let ls = lineStartLocation(at: sel.location)
+        guard ie > ls else {
+            super.moveToBeginningOfParagraph(sender)
+            return
+        }
+        let target = (sel.location != ie) ? ie : ls
+        setSelectedRange(NSRange(location: target, length: 0))
+    }
+
+    override func moveToBeginningOfParagraphAndModifySelection(_ sender: Any?) {
+        let sel = selectedRange()
+        let ie = indentEndOfLine(at: sel.location)
+        let ls = lineStartLocation(at: sel.location)
+        guard ie > ls else {
+            super.moveToBeginningOfParagraphAndModifySelection(sender)
+            return
+        }
+        let target = (sel.location != ie) ? ie : ls
+        let right = sel.location + sel.length
+        if target < right {
+            setSelectedRange(NSRange(location: target, length: right - target))
+        } else {
+            setSelectedRange(NSRange(location: target, length: 0))
+        }
+    }
+
+    // Arrow keys
+    override func moveLeft(_ sender: Any?) {
+        super.moveLeft(sender)
+        snapCursorOutOfIndent(movingLeft: true)
+    }
+
+    override func moveRight(_ sender: Any?) {
+        super.moveRight(sender)
+        snapCursorOutOfIndent(movingLeft: false)
+    }
+
+    override func moveUp(_ sender: Any?) {
+        super.moveUp(sender)
+        snapCursorOutOfIndent(movingLeft: false)
+    }
+
+    override func moveDown(_ sender: Any?) {
+        super.moveDown(sender)
+        snapCursorOutOfIndent(movingLeft: false)
+    }
+
+    override func moveWordLeft(_ sender: Any?) {
+        super.moveWordLeft(sender)
+        snapCursorOutOfIndent(movingLeft: true)
+    }
+
+    override func moveWordRight(_ sender: Any?) {
+        super.moveWordRight(sender)
+        snapCursorOutOfIndent(movingLeft: false)
+    }
+
+    // Arrow keys with selection
+    override func moveLeftAndModifySelection(_ sender: Any?) {
+        let before = selectedRange()
+        super.moveLeftAndModifySelection(sender)
+        snapSelectionOutOfIndent(before: before, movingLeft: true)
+    }
+
+    override func moveRightAndModifySelection(_ sender: Any?) {
+        let before = selectedRange()
+        super.moveRightAndModifySelection(sender)
+        snapSelectionOutOfIndent(before: before, movingLeft: false)
+    }
+
+    override func moveUpAndModifySelection(_ sender: Any?) {
+        let before = selectedRange()
+        super.moveUpAndModifySelection(sender)
+        snapSelectionOutOfIndent(before: before, movingLeft: false)
+    }
+
+    override func moveDownAndModifySelection(_ sender: Any?) {
+        let before = selectedRange()
+        super.moveDownAndModifySelection(sender)
+        snapSelectionOutOfIndent(before: before, movingLeft: false)
+    }
+
+    override func moveWordLeftAndModifySelection(_ sender: Any?) {
+        let before = selectedRange()
+        super.moveWordLeftAndModifySelection(sender)
+        snapSelectionOutOfIndent(before: before, movingLeft: true)
+    }
+
+    override func moveWordRightAndModifySelection(_ sender: Any?) {
+        let before = selectedRange()
+        super.moveWordRightAndModifySelection(sender)
+        snapSelectionOutOfIndent(before: before, movingLeft: false)
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         invalidateShrinkDisplay()
@@ -2004,6 +2200,11 @@ private final class LineDeleteOnCutTextView: NSTextView {
             return
         }
         super.mouseDown(with: event)
+        // Snap cursor out of indent zone after click (not during drag selections)
+        let sel = selectedRange()
+        if sel.length == 0, isInIndentZone(sel.location) {
+            setSelectedRange(NSRange(location: indentEndOfLine(at: sel.location), length: 0))
+        }
     }
 
     private func applySmartListEdit(action: SmartListAction) -> Bool {
