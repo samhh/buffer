@@ -320,6 +320,56 @@ enum SmartListEditing {
         )
     }
 
+    /// Returns the range covering the current line and all following lines that are
+    /// deeper (subitems). Empty lines between subitems are included. Stops at the
+    /// first non-empty line with depth ≤ the current line's depth.
+    static func subitemRange(in text: NSString, caretLocation: Int) -> NSRange {
+        guard text.length > 0 else {
+            return NSRange(location: 0, length: 0)
+        }
+
+        let safeCaret = min(max(0, caretLocation), max(0, text.length - 1))
+        let currentLineRange = text.lineRange(for: NSRange(location: safeCaret, length: 0))
+        let currentContent = text.substring(with: currentLineRange).trimmingCharacters(in: .newlines)
+        let currentDepth = normalizedIndentCount(currentContent) / indentUnit.count
+
+        var end = currentLineRange.location + currentLineRange.length
+
+        while end < text.length {
+            let nextLineRange = text.lineRange(for: NSRange(location: end, length: 0))
+            let nextContent = text.substring(with: nextLineRange).trimmingCharacters(in: .newlines)
+
+            if nextContent.trimmingCharacters(in: .whitespaces).isEmpty {
+                // Empty line — include tentatively, but only if there are deeper lines after
+                end = nextLineRange.location + nextLineRange.length
+                continue
+            }
+
+            let nextDepth = normalizedIndentCount(nextContent) / indentUnit.count
+            if nextDepth <= currentDepth {
+                break
+            }
+
+            end = nextLineRange.location + nextLineRange.length
+        }
+
+        // Trim trailing empty lines: walk backwards from `end` to exclude empty lines
+        // that were speculatively included but not followed by deeper content.
+        while end > currentLineRange.location + currentLineRange.length {
+            // Look at the line just before `end`
+            let probe = end - 1
+            let lineRange = text.lineRange(for: NSRange(location: probe, length: 0))
+            let content = text.substring(with: lineRange).trimmingCharacters(in: .newlines)
+            if content.trimmingCharacters(in: .whitespaces).isEmpty {
+                end = lineRange.location
+            } else {
+                break
+            }
+        }
+
+        return NSRange(location: currentLineRange.location, length: end - currentLineRange.location)
+    }
+
     private static func unhandled(selection: NSRange) -> SmartListEdit {
         SmartListEdit(handled: false, replacementRange: NSRange(location: 0, length: 0), replacement: "", selection: selection)
     }
