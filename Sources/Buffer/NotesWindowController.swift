@@ -1923,14 +1923,14 @@ private final class LineDeleteOnCutTextView: NSTextView {
         }
 
         let nsText = string as NSString
-        let lineRange = nsText.lineRange(for: NSRange(location: selection.location, length: 0))
-        guard shouldChangeText(in: lineRange, replacementString: "") else {
+        let range = SmartListEditing.subitemRange(in: nsText, caretLocation: selection.location)
+        guard shouldChangeText(in: range, replacementString: "") else {
             return
         }
 
-        textStorage?.replaceCharacters(in: lineRange, with: "")
+        textStorage?.replaceCharacters(in: range, with: "")
         didChangeText()
-        setSelectedRange(NSRange(location: min(lineRange.location, (string as NSString).length), length: 0))
+        setSelectedRange(NSRange(location: min(range.location, (string as NSString).length), length: 0))
     }
 
     override func deleteBackward(_ sender: Any?) {

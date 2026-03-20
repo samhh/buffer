@@ -20,6 +20,28 @@ Requires macOS 26.0+ SDK. The project uses Swift Package Manager — `Package.sw
 
 Notes are stored as plaintext in `~/Library/Application Support/Buffer`. Pinning uses extended attributes (xattr).
 
+## Indentation & Subitems
+
+Lines are organized into a hierarchy using 4-space indentation. Depth = `floor(leading_spaces / 4)`. There is no hard nesting limit.
+
+```
+Project A           ← depth 0
+    Task 1          ← depth 1 (child of Project A)
+        Subtask     ← depth 2 (child of Task 1)
+    Task 2          ← depth 1
+Project B           ← depth 0
+```
+
+**Smart list editing** (`SmartListEditing.swift`) handles keyboard interactions:
+- **Enter** — inherits the current line's indent level. On an empty indented line, clears the indent instead.
+- **Tab** — indents selected lines by 4 spaces. On an empty line, indents to one level deeper than the previous line.
+- **Shift+Tab** — unindents selected lines by up to 4 spaces.
+- **Backspace** — when the caret is within leading whitespace, deletes all leading spaces at once.
+- **Opt+Up/Down** — moves entire lines up/down, preserving indentation.
+- **Cmd+X** (no selection) — deletes the current line **and all deeper subitems** below it. Stops at the first non-empty line with equal or lesser depth. Empty lines between subitems are included; trailing empty lines are not.
+
+**Root group styling** (`RootGroupStyling.swift`) uses depth to visually group depth-0 parents with their children, cycling through a color palette.
+
 ## Conventions
 
 - No external dependencies — keep it that way unless discussed.

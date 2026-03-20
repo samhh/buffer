@@ -112,6 +112,60 @@ final class SmartListEditingTests: XCTestCase {
         XCTAssertEqual(newSelection.length, 2)
     }
 
+    // MARK: - subitemRange
+
+    func testSubitemRangeDeletesSingleLineWithNoChildren() {
+        let text = "one\ntwo\nthree"
+        let nsText = text as NSString
+        let range = SmartListEditing.subitemRange(in: nsText, caretLocation: 0)
+        // Should only cover "one\n"
+        XCTAssertEqual(nsText.substring(with: range), "one\n")
+    }
+
+    func testSubitemRangeDeletesLineAndImmediateChildren() {
+        let text = "parent\n    child1\n    child2\nsibling"
+        let nsText = text as NSString
+        let range = SmartListEditing.subitemRange(in: nsText, caretLocation: 0)
+        XCTAssertEqual(nsText.substring(with: range), "parent\n    child1\n    child2\n")
+    }
+
+    func testSubitemRangeDeletesNestedChildren() {
+        let text = "parent\n    child\n        grandchild\nsibling"
+        let nsText = text as NSString
+        let range = SmartListEditing.subitemRange(in: nsText, caretLocation: 0)
+        XCTAssertEqual(nsText.substring(with: range), "parent\n    child\n        grandchild\n")
+    }
+
+    func testSubitemRangeFromChildDeletesOnlyDeeperItems() {
+        let text = "parent\n    child\n        grandchild\n    child2\nsibling"
+        let nsText = text as NSString
+        // Caret on "    child" (location 7)
+        let range = SmartListEditing.subitemRange(in: nsText, caretLocation: 7)
+        XCTAssertEqual(nsText.substring(with: range), "    child\n        grandchild\n")
+    }
+
+    func testSubitemRangeDoesNotIncludeTrailingEmptyLines() {
+        let text = "parent\n    child\n\nsibling"
+        let nsText = text as NSString
+        let range = SmartListEditing.subitemRange(in: nsText, caretLocation: 0)
+        // The empty line should NOT be included since it's followed by a non-child
+        XCTAssertEqual(nsText.substring(with: range), "parent\n    child\n")
+    }
+
+    func testSubitemRangeIncludesEmptyLinesBetweenChildren() {
+        let text = "parent\n    child1\n\n    child2\nsibling"
+        let nsText = text as NSString
+        let range = SmartListEditing.subitemRange(in: nsText, caretLocation: 0)
+        XCTAssertEqual(nsText.substring(with: range), "parent\n    child1\n\n    child2\n")
+    }
+
+    func testSubitemRangeAtLastLineWithNoNewline() {
+        let text = "one\ntwo"
+        let nsText = text as NSString
+        let range = SmartListEditing.subitemRange(in: nsText, caretLocation: 4)
+        XCTAssertEqual(nsText.substring(with: range), "two")
+    }
+
     private func apply(_ action: SmartListAction, to text: String, selection: NSRange) -> (String, NSRange) {
         let edit = makeEdit(action, to: text, selection: selection)
         XCTAssertTrue(edit.handled, "Expected action to be handled: \(action)")
