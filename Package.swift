@@ -16,7 +16,8 @@ let package = Package(
         ),
         .testTarget(
             name: "BufferTests",
-            dependencies: ["Buffer"]
+            dependencies: ["Buffer"],
+            exclude: ["__Snapshots__"]
         ),
     ]
 )

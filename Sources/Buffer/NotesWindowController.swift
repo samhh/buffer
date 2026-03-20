@@ -2103,10 +2103,12 @@ private final class LineDeleteOnCutTextView: NSTextView {
     }
 }
 
-private final class ListBulletLayoutManager: NSLayoutManager {
+final class ListBulletLayoutManager: NSLayoutManager {
     private let indentWidth = (SmartListEditing.indentUnit as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
     private let markerCenterYOffset: CGFloat = 10
     private var compressedLinkRanges: [NSRange] = []
+    /// Spans whose display text should be drawn in place of the compressed originals.
+    private(set) var displaySpans: [ShrunkLinkSpan] = []
     var showsStructuralFormatting = true
 
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
@@ -2170,6 +2172,7 @@ private final class ListBulletLayoutManager: NSLayoutManager {
     func updateLinkCompression(spans: [ShrunkLinkSpan], activeRanges: [NSRange]) {
         guard let textStorage else {
             compressedLinkRanges = []
+            displaySpans = []
             return
         }
         let fullLength = (textStorage.string as NSString).length
@@ -2179,7 +2182,9 @@ private final class ListBulletLayoutManager: NSLayoutManager {
         }
 
         let baseFont = NSFont.systemFont(ofSize: 14)
-        textStorage.beginEditing()
+
+        // Collect spans that need compression.
+        var inactiveSpans: [ShrunkLinkSpan] = []
         for span in spans {
             guard span.range.location != NSNotFound,
                   span.range.length > 0,
@@ -2189,26 +2194,48 @@ private final class ListBulletLayoutManager: NSLayoutManager {
             if intersectsAnyActiveRange(span.range, activeRanges: activeRanges) {
                 continue
             }
+            inactiveSpans.append(span)
+        }
 
+        // Get per-glyph advances so we can apply proportional kern.
+        // Uniform kern breaks down when narrow glyphs (`.`, `/`, `i`)
+        // can't absorb enough negative spacing.
+        let ctFont = baseFont as CTFont
+
+        textStorage.beginEditing()
+        for span in inactiveSpans {
             let originalText = (textStorage.string as NSString).substring(with: span.range)
-            let originalWidth = (originalText as NSString).size(withAttributes: [.font: baseFont]).width
             let displayWidth = (span.displayText as NSString).size(withAttributes: [.font: baseFont]).width
-            let glyphCount = max(span.range.length, 1)
-            let kern: CGFloat
-            if glyphCount > 1, originalWidth > 0 {
-                kern = (displayWidth - originalWidth) / CGFloat(glyphCount - 1)
-            } else {
-                kern = 0
+
+            // Measure per-character advances via CTFont.
+            let characters = Array(originalText.utf16)
+            var glyphs = [CGGlyph](repeating: 0, count: characters.count)
+            CTFontGetGlyphsForCharacters(ctFont, characters, &glyphs, characters.count)
+            var advances = [CGSize](repeating: .zero, count: characters.count)
+            CTFontGetAdvancesForGlyphs(ctFont, .horizontal, glyphs, &advances, characters.count)
+
+            let originalWidth = advances.reduce(CGFloat(0)) { $0 + $1.width }
+            guard originalWidth > 0, characters.count > 1 else {
+                textStorage.addAttribute(.foregroundColor, value: NSColor.clear, range: span.range)
+                compressedLinkRanges.append(span.range)
+                continue
+            }
+
+            // Proportional compression: each character's kern scales with its advance.
+            // kern_i = (factor - 1) * advance_i  where factor = displayWidth / originalWidth
+            let factor = displayWidth / originalWidth
+            for i in 0 ..< (characters.count - 1) {
+                let charKern = (factor - 1.0) * advances[i].width
+                let charRange = NSRange(location: span.range.location + i, length: 1)
+                textStorage.addAttribute(.kern, value: charKern, range: charRange)
             }
 
             textStorage.addAttribute(.foregroundColor, value: NSColor.clear, range: span.range)
-            if span.range.length > 1 {
-                let kernRange = NSRange(location: span.range.location, length: span.range.length - 1)
-                textStorage.addAttribute(.kern, value: kern, range: kernRange)
-            }
             compressedLinkRanges.append(span.range)
         }
         textStorage.endEditing()
+
+        displaySpans = inactiveSpans
 
         let fullRange = NSRange(location: 0, length: fullLength)
         invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
@@ -2229,17 +2256,13 @@ private final class ListBulletLayoutManager: NSLayoutManager {
         }
         textStorage.endEditing()
         compressedLinkRanges.removeAll(keepingCapacity: true)
+        displaySpans.removeAll(keepingCapacity: true)
     }
 
     private func drawShrunkLinks(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
-        guard let textView = primaryTextView as? LineDeleteOnCutTextView else {
-            return
-        }
+        guard !displaySpans.isEmpty else { return }
         guard let textContainer = textContainers.first else { return }
-        let spans = inactiveSpansForDisplay(
-            spans: textView.linkSpansForDisplay,
-            activeRanges: textView.activeLinkRangesForDisplay
-        )
+        let spans = displaySpans
         let font = NSFont.systemFont(ofSize: 14)
         let baseAttributes: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -2269,19 +2292,20 @@ private final class ListBulletLayoutManager: NSLayoutManager {
                 height: lineRect.height
             )
 
+            // Stretch display text with tiny kern to fill residual gap from
+            // compression rounding (~0-5pt spread across all display chars).
+            var drawAttributes = baseAttributes
+            let compressedWidth = boundingRect(forGlyphRange: glyphRange, in: textContainer).width
+            let displayWidth = (span.displayText as NSString).size(withAttributes: baseAttributes).width
+            let displayCharCount = span.displayText.count
+            if displayCharCount > 1, compressedWidth > displayWidth {
+                let fillKern = (compressedWidth - displayWidth) / CGFloat(displayCharCount - 1)
+                drawAttributes[.kern] = fillKern
+            }
+
             NSGraphicsContext.current?.saveGraphicsState()
             NSBezierPath(rect: clipRect).addClip()
-            var attributes = baseAttributes
-            if span.displayText.count > 1 {
-                let targetWidth = boundingRect(forGlyphRange: glyphRange, in: textContainer).width
-                let displayWidth = (span.displayText as NSString).size(withAttributes: [.font: font]).width
-                let extraWidth = targetWidth - displayWidth
-                if extraWidth > 0.15 {
-                    let kern = extraWidth / CGFloat(span.displayText.count - 1)
-                    attributes[.kern] = kern
-                }
-            }
-            (span.displayText as NSString).draw(at: drawPoint, withAttributes: attributes)
+            (span.displayText as NSString).draw(at: drawPoint, withAttributes: drawAttributes)
             NSGraphicsContext.current?.restoreGraphicsState()
         }
     }
