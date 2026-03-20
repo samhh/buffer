@@ -36,4 +36,4 @@ Buffer will start backgrounded in the menu bar. Notes are stored in plaintext at
 
 ## Development
 
-Everything except for this README was vibecoded with Codex (5.3 medium). It's most heavily inspired by [Antinote](https://antinote.io) and [Raycast Notes](https://www.raycast.com/core-features/notes).
+Everything except for this README was vibecoded with Codex and Claude Code. It's most heavily inspired by [Antinote](https://antinote.io) and [Raycast Notes](https://www.raycast.com/core-features/notes).

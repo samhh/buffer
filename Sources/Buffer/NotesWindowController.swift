@@ -25,6 +25,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     private var keyMonitor: Any?
     private var mouseMoveMonitor: Any?
     private var didResignActiveObserver: NSObjectProtocol?
+    private var globalClickMonitor: Any?
     private var inNoteFindHighlightedRange: NSRange?
     private var inNoteFindSecondaryRanges: [NSRange] = []
     private let normalDefaultFrame = NSRect(x: 0, y: 0, width: 500, height: 400)
@@ -273,18 +274,17 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             return event
         }
 
-        didResignActiveObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didResignActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                if !self.writingModeState.isEnabled {
-                    self.window.orderOut(nil)
-                }
-                self.setWindowControlsVisible(false)
-            }
+        // Hide the panel when the user clicks outside of it. Using a global
+        // mouse-down monitor instead of didResignActiveNotification avoids
+        // false dismissals from system panels (emoji picker, etc.) that steal
+        // focus without an explicit user click away from the panel.
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, self.window.isVisible else { return }
+            if self.writingModeState.isEnabled { return }
+            self.hideSearch()
+            self.hideInNoteFind(refocusEditor: false)
+            self.window.orderOut(nil)
+            self.setWindowControlsVisible(false)
         }
     }
 
@@ -296,6 +296,10 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         if let mouseMoveMonitor {
             NSEvent.removeMonitor(mouseMoveMonitor)
             self.mouseMoveMonitor = nil
+        }
+        if let globalClickMonitor {
+            NSEvent.removeMonitor(globalClickMonitor)
+            self.globalClickMonitor = nil
         }
         if let didResignActiveObserver {
             NotificationCenter.default.removeObserver(didResignActiveObserver)
@@ -356,16 +360,6 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     func windowDidResignKey(_ notification: Notification) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if NSApp.isActive, NSApp.keyWindow != nil {
-                self.setWindowControlsVisible(false)
-                return
-            }
-
-            self.hideSearch()
-            self.hideInNoteFind(refocusEditor: false)
-            if !self.writingModeState.isEnabled {
-                self.window.orderOut(nil)
-            }
             self.setWindowControlsVisible(false)
         }
     }
