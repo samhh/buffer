@@ -469,6 +469,27 @@ enum SmartListEditing {
         return fenceCount % 2 == 1
     }
 
+    /// Returns `true` when the caret (or start of selection) sits on a line
+    /// that is inside a fenced code block (between ``` pairs).
+    static func isInsideCodeFence(text: NSString, location: Int) -> Bool {
+        guard text.length > 0 else { return false }
+        let safeLoc = min(max(0, location), text.length)
+        // Count opening-fence lines above `location`. If odd, we're inside a fence.
+        var pos = 0
+        var fenceCount = 0
+        while pos < safeLoc {
+            let lr = text.lineRange(for: NSRange(location: pos, length: 0))
+            let line = text.substring(with: lr).trimmingCharacters(in: .newlines)
+            if openingFencePattern.firstMatch(in: line, options: [], range: NSRange(location: 0, length: line.count)) != nil {
+                fenceCount += 1
+            }
+            let next = NSMaxRange(lr)
+            if next <= pos { break }
+            pos = next
+        }
+        return fenceCount % 2 == 1
+    }
+
     private static func unhandled(selection: NSRange) -> SmartListEdit {
         SmartListEdit(handled: false, replacementRange: NSRange(location: 0, length: 0), replacement: "", selection: selection)
     }
