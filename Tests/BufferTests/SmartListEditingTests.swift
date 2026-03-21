@@ -252,6 +252,59 @@ final class SmartListEditingTests: XCTestCase {
         XCTAssertEqual(nsText.substring(with: range), "two")
     }
 
+    // MARK: - Code fence auto-close
+
+    func testEnterAfterOpenFenceInsertsClosingFence() {
+        let text = "```swift"
+        let selection = NSRange(location: text.count, length: 0)
+        let (updated, cursor) = apply(.enter, to: text, selection: selection)
+        XCTAssertEqual(updated, "```swift\n\n```")
+        XCTAssertEqual(cursor, NSRange(location: 9, length: 0)) // cursor on blank line
+    }
+
+    func testEnterAfterBareFenceInsertsClosingFence() {
+        let text = "```"
+        let selection = NSRange(location: text.count, length: 0)
+        let (updated, cursor) = apply(.enter, to: text, selection: selection)
+        XCTAssertEqual(updated, "```\n\n```")
+        XCTAssertEqual(cursor, NSRange(location: 4, length: 0))
+    }
+
+    func testEnterDoesNotAutoCloseWhenClosingFenceExists() {
+        let text = "```\ncode\n```"
+        // Caret at end of first line (after "```")
+        let selection = NSRange(location: 3, length: 0)
+        let (updated, _) = apply(.enter, to: text, selection: selection)
+        // Should just insert a newline, not add another ```
+        XCTAssertFalse(updated.hasSuffix("```\n```"))
+    }
+
+    func testEnterAfterFenceWithExistingContentDoesNotDoubleClose() {
+        let text = "some text\n```python"
+        let selection = NSRange(location: text.count, length: 0)
+        let (updated, cursor) = apply(.enter, to: text, selection: selection)
+        XCTAssertEqual(updated, "some text\n```python\n\n```")
+        XCTAssertEqual(cursor, NSRange(location: 20, length: 0))
+    }
+
+    func testEnterOnClosingFenceDoesNotAutoClose() {
+        let text = "```\ncode\n```"
+        // Caret at end of closing fence line
+        let selection = NSRange(location: text.count, length: 0)
+        let (updated, _) = apply(.enter, to: text, selection: selection)
+        // Should just insert a newline, not add another ```
+        XCTAssertEqual(updated, "```\ncode\n```\n")
+    }
+
+    func testEnterMidLineDoesNotAutoCloseFence() {
+        let text = "```swift"
+        // Caret in the middle, not at line end
+        let selection = NSRange(location: 3, length: 0)
+        let (updated, _) = apply(.enter, to: text, selection: selection)
+        // Should not auto-close, just a regular enter
+        XCTAssertFalse(updated.contains("\n\n```"))
+    }
+
     private func apply(_ action: SmartListAction, to text: String, selection: NSRange) -> (String, NSRange) {
         let edit = makeEdit(action, to: text, selection: selection)
         XCTAssertTrue(edit.handled, "Expected action to be handled: \(action)")

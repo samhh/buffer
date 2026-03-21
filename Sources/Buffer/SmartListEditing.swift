@@ -47,6 +47,11 @@ enum SmartListEditing {
         }
     }
 
+    private static let openingFencePattern = try! NSRegularExpression(
+        pattern: #"^[ \t]*```[^`]*$"#,
+        options: []
+    )
+
     private static func makeEnterEdit(nsText: NSString, selection: NSRange) -> SmartListEdit {
         guard selection.length == 0 else {
             return unhandled(selection: selection)
@@ -68,6 +73,24 @@ enum SmartListEditing {
             let probe = max(0, min(caret, max(nsText.length - 1, 0)))
             lineRange = nsText.lineRange(for: NSRange(location: probe, length: 0))
             rawLine = nsText.substring(with: lineRange).trimmingCharacters(in: .newlines)
+        }
+
+        // Auto-close code fence: if the caret is at the end of an opening fence
+        // line (e.g. "```swift") and there is no matching close fence below,
+        // insert a newline + closing ``` and place the cursor between them.
+        let contentRange = contentRangeOfLine(in: nsText, lineRange: lineRange)
+        let caretAtLineEnd = caret == contentRange.location + contentRange.length
+        if caretAtLineEnd,
+           openingFencePattern.firstMatch(in: rawLine, options: [], range: NSRange(location: 0, length: rawLine.count)) != nil,
+           !hasOpeningFence(above: lineRange, in: nsText),
+           !hasClosingFence(below: lineRange, in: nsText) {
+            let insertion = "\n\n```"
+            return SmartListEdit(
+                handled: true,
+                replacementRange: NSRange(location: caret, length: 0),
+                replacement: insertion,
+                selection: NSRange(location: caret + 1, length: 0) // cursor on blank line
+            )
         }
 
         let (leadingSpaces, hasMarker, body) = lineComponents(rawLine)
@@ -406,6 +429,44 @@ enum SmartListEditing {
         }
 
         return NSRange(location: currentLineRange.location, length: end - currentLineRange.location)
+    }
+
+    /// Checks whether there is an unpaired opening ``` fence on any line
+    /// above `lineRange`. If the count of fence lines above is odd, our line
+    /// is already a closing fence for one of them — don't auto-close again.
+    private static func hasOpeningFence(above lineRange: NSRange, in text: NSString) -> Bool {
+        guard lineRange.location > 0 else { return false }
+        var location = 0
+        var fenceCount = 0
+        while location < lineRange.location {
+            let lr = text.lineRange(for: NSRange(location: location, length: 0))
+            let line = text.substring(with: lr).trimmingCharacters(in: .newlines)
+            if openingFencePattern.firstMatch(in: line, options: [], range: NSRange(location: 0, length: line.count)) != nil {
+                fenceCount += 1
+            }
+            let next = NSMaxRange(lr)
+            if next <= location { break }
+            location = next
+        }
+        return fenceCount % 2 == 1
+    }
+
+    /// Checks whether there is an unpaired closing ``` fence on any line
+    /// below `lineRange`. We count fence lines: if the count is odd, the
+    /// first one closes our opener; if even, all are paired and we need one.
+    private static func hasClosingFence(below lineRange: NSRange, in text: NSString) -> Bool {
+        var location = NSMaxRange(lineRange)
+        var fenceCount = 0
+        while location < text.length {
+            let nextLineRange = text.lineRange(for: NSRange(location: location, length: 0))
+            let line = text.substring(with: nextLineRange).trimmingCharacters(in: .newlines)
+            if openingFencePattern.firstMatch(in: line, options: [], range: NSRange(location: 0, length: line.count)) != nil {
+                fenceCount += 1
+            }
+            location = NSMaxRange(nextLineRange)
+            if location == nextLineRange.location { break } // safety
+        }
+        return fenceCount % 2 == 1
     }
 
     private static func unhandled(selection: NSRange) -> SmartListEdit {
