@@ -1755,6 +1755,10 @@ private struct PlainTextEditor: NSViewRepresentable {
         (SmartListEditing.indentUnit as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
     }()
 
+    private static let listMarkerWidth: CGFloat = {
+        (SmartListEditing.listMarker as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
+    }()
+
     private func applyParagraphStyle(in textView: NSTextView, writingModeEnabled: Bool) {
         guard let textStorage = textView.textStorage else { return }
         let nsText = textView.string as NSString
@@ -1781,8 +1785,8 @@ private struct PlainTextEditor: NSViewRepresentable {
             let lineRange = nsText.lineRange(for: NSRange(location: location, length: 0))
             let contentRange = Self.contentRangeOfLine(in: nsText, lineRange: lineRange)
             let lineContent = contentRange.length > 0 ? nsText.substring(with: contentRange) : ""
-            let depth = Self.indentDepthForWrapping(in: lineContent)
-            textStorage.addAttribute(.paragraphStyle, value: Self.paragraphStyle(forIndentDepth: depth), range: lineRange)
+            let wrappingIndent = Self.wrappingHeadIndent(in: lineContent)
+            textStorage.addAttribute(.paragraphStyle, value: Self.paragraphStyle(forHeadIndent: wrappingIndent), range: lineRange)
             location = NSMaxRange(lineRange)
         }
         textStorage.endEditing()
@@ -1791,21 +1795,22 @@ private struct PlainTextEditor: NSViewRepresentable {
         let currentLineRange = nsText.lineRange(for: NSRange(location: selectedLocation, length: 0))
         let currentContentRange = Self.contentRangeOfLine(in: nsText, lineRange: currentLineRange)
         let currentLine = currentContentRange.length > 0 ? nsText.substring(with: currentContentRange) : ""
-        let currentDepth = Self.indentDepthForWrapping(in: currentLine)
-        textView.typingAttributes[.paragraphStyle] = Self.paragraphStyle(forIndentDepth: currentDepth)
+        let currentIndent = Self.wrappingHeadIndent(in: currentLine)
+        textView.typingAttributes[.paragraphStyle] = Self.paragraphStyle(forHeadIndent: currentIndent)
     }
 
-    private static func indentDepthForWrapping(in line: String) -> Int {
-        let rawLeadingSpaces = line.prefix { $0 == " " }.count
-        let normalized = (rawLeadingSpaces / SmartListEditing.indentUnit.count) * SmartListEditing.indentUnit.count
-        return normalized / SmartListEditing.indentUnit.count
+    private static func wrappingHeadIndent(in line: String) -> CGFloat {
+        let (indent, hasMarker, _) = SmartListEditing.lineComponents(line)
+        let depth = indent / SmartListEditing.indentUnit.count
+        let base = CGFloat(depth) * indentUnitWidth
+        return hasMarker ? base + listMarkerWidth : base
     }
 
-    private static func paragraphStyle(forIndentDepth depth: Int) -> NSParagraphStyle {
-        guard depth > 0 else { return editorParagraphStyle }
+    private static func paragraphStyle(forHeadIndent headIndent: CGFloat) -> NSParagraphStyle {
+        guard headIndent > 0 else { return editorParagraphStyle }
         let style = editorParagraphStyle.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
         style.firstLineHeadIndent = 0
-        style.headIndent = CGFloat(depth) * indentUnitWidth
+        style.headIndent = headIndent
         return style
     }
 
@@ -1998,7 +2003,14 @@ private final class LineDeleteOnCutTextView: NSTextView {
         }
         let indentSize = SmartListEditing.indentUnit.count
         let normalized = (offset / indentSize) * indentSize
-        return lineRange.location + normalized
+        var end = lineRange.location + normalized
+        // Check for list marker "- " after indent spaces
+        if end + 1 < nsText.length,
+           nsText.character(at: end) == 0x2D, // '-'
+           nsText.character(at: end + 1) == 0x20 { // ' '
+            end += 2
+        }
+        return end
     }
 
     private func lineStartLocation(at location: Int) -> Int {
@@ -2330,8 +2342,6 @@ private final class LineDeleteOnCutTextView: NSTextView {
 }
 
 final class ListBulletLayoutManager: NSLayoutManager {
-    private let indentWidth = (SmartListEditing.indentUnit as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
-    private let markerCenterYOffset: CGFloat = 10
     private var compressedLinkRanges: [NSRange] = []
     /// Spans whose display text should be drawn in place of the compressed originals.
     private(set) var displaySpans: [ShrunkLinkSpan] = []
@@ -2339,60 +2349,10 @@ final class ListBulletLayoutManager: NSLayoutManager {
 
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
-        if showsStructuralFormatting {
-            drawIndentMarkers(forGlyphRange: glyphsToShow, at: origin)
-        }
         drawShrunkLinks(forGlyphRange: glyphsToShow, at: origin)
         if showsStructuralFormatting {
             drawContinuationFade(forGlyphRange: glyphsToShow, at: origin)
         }
-    }
-
-    private func drawIndentMarkers(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
-        guard let textStorage else { return }
-        let text = textStorage.string as NSString
-        guard text.length > 0 else { return }
-
-        let lines = RootGroupStyling.parseLines(in: text)
-        guard !lines.isEmpty else { return }
-
-        let markerColor = NSColor(name: nil) { appearance in
-            if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
-                return NSColor(srgbRed: 0.50, green: 0.50, blue: 0.54, alpha: 1)
-            }
-            return NSColor(srgbRed: 0.42, green: 0.42, blue: 0.46, alpha: 1)
-        }
-        markerColor.setStroke()
-
-        for line in lines where line.depth > 0 {
-            let glyphIndex = glyphIndexForCharacter(at: line.contentRange.location)
-            guard glyphIndex != NSNotFound else { continue }
-            if NSIntersectionRange(glyphsToShow, NSRange(location: glyphIndex, length: 1)).length == 0 {
-                continue
-            }
-            let lineRect = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
-            let lineOriginX = origin.x + lineRect.minX
-            let markerCenterY = origin.y + lineRect.minY + markerCenterYOffset
-            for level in 0..<line.depth {
-                let markerCenterX = lineOriginX + (CGFloat(level) * indentWidth) + (indentWidth * 0.5) + 3
-                drawTabMarker(at: NSPoint(x: markerCenterX, y: markerCenterY))
-            }
-        }
-    }
-
-    private func drawTabMarker(at point: NSPoint) {
-        let marker = NSBezierPath()
-        marker.move(to: NSPoint(x: point.x - 2.4, y: point.y - 1.8))
-        marker.line(to: NSPoint(x: point.x - 2.4, y: point.y + 1.8))
-        marker.move(to: NSPoint(x: point.x - 2.4, y: point.y))
-        marker.line(to: NSPoint(x: point.x + 2.4, y: point.y))
-        marker.line(to: NSPoint(x: point.x + 1.1, y: point.y + 1.0))
-        marker.move(to: NSPoint(x: point.x + 2.4, y: point.y))
-        marker.line(to: NSPoint(x: point.x + 1.1, y: point.y - 1.0))
-        marker.lineWidth = 1.0
-        marker.lineCapStyle = .round
-        marker.lineJoinStyle = .round
-        marker.stroke()
     }
 
     func updateLinkCompression(spans: [ShrunkLinkSpan], activeRanges: [NSRange]) {
