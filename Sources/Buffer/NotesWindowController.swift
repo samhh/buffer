@@ -1039,6 +1039,14 @@ private struct NoteEditorView: View {
     }
 }
 
+private extension View {
+    func pointingHandCursor() -> some View {
+        self.onHover { inside in
+            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
 private struct DeletedNoteToastView: View {
     @Environment(\.colorScheme) private var colorScheme
     let onUndo: () -> Void
@@ -1064,23 +1072,15 @@ private struct DeletedNoteToastView: View {
                 )
             }
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .onContinuousHover { phase in
-                switch phase {
-                case .active:
-                    NSCursor.pointingHand.set()
-                    DispatchQueue.main.async {
-                        NSCursor.pointingHand.set()
-                    }
-                case .ended:
-                    NSCursor.arrow.set()
-                }
-            }
+            .pointingHandCursor()
             .buttonStyle(.plain)
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
+            .contentShape(Rectangle())
+            .pointingHandCursor()
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 10)
@@ -1297,13 +1297,13 @@ private struct SearchOverlayView: View {
         .textSelection(.disabled)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+        .pointingHandCursor()
         .onTapGesture {
             onSelect(result)
         }
         .onContinuousHover { phase in
             switch phase {
             case .active:
-                NSCursor.pointingHand.set()
                 hoveredResultID = result.id
                 if hoverSelectionEnabled {
                     suppressNextSelectionAutoScroll = true
@@ -1317,7 +1317,6 @@ private struct SearchOverlayView: View {
                     hoveredTrashResultID = nil
                     onHoverResultID(nil)
                 }
-                NSCursor.arrow.set()
             }
         }
     }
@@ -1362,8 +1361,14 @@ private struct SearchOverlayView: View {
                             )
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                    .onHover { hovering in
-                        hoveredPinResultID = hovering ? result.id : nil
+                    .pointingHandCursor()
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active:
+                            hoveredPinResultID = result.id
+                        case .ended:
+                            hoveredPinResultID = nil
+                        }
                     }
                     .buttonStyle(.plain)
                     .help(result.isPinned ? "Unpin note (Cmd+Shift+P)" : "Pin note (Cmd+Shift+P)")
@@ -1383,8 +1388,14 @@ private struct SearchOverlayView: View {
                                 )
                         }
                         .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                        .onHover { hovering in
-                            hoveredTrashResultID = hovering ? result.id : nil
+                        .pointingHandCursor()
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active:
+                                hoveredTrashResultID = result.id
+                            case .ended:
+                                hoveredTrashResultID = nil
+                            }
                         }
                         .buttonStyle(.plain)
                         .help("Delete note (Cmd+D)")
@@ -1862,7 +1873,7 @@ private final class LineDeleteOnCutTextView: NSTextView {
         }
         syncLinkDisplayState()
         invalidateShrinkDisplay()
-        updateCursorForCurrentLocation()
+        invalidateCursorDisplay()
     }
 
     func refreshSelectionLinkState() {
@@ -1873,7 +1884,7 @@ private final class LineDeleteOnCutTextView: NSTextView {
         }
         expandRememberedLinkForCurrentVerticalMove = false
         syncLinkDisplayState()
-        updateCursorForCurrentLocation()
+        invalidateCursorDisplay()
     }
 
     func activeLinkRangesForSelection() -> [NSRange] {
@@ -2239,30 +2250,39 @@ private final class LineDeleteOnCutTextView: NSTextView {
     }
 
     override func resetCursorRects() {
+        discardCursorRects()
         if searchOverlayPresented {
-            discardCursorRects()
             addCursorRect(bounds, cursor: .arrow)
             return
         }
-        super.resetCursorRects()
+        // Add pointingHand rects for links when Cmd is held
+        if NSEvent.modifierFlags.contains(.command),
+           let layoutManager, let textContainer {
+            for span in linkSpans {
+                let glyphRange = layoutManager.glyphRange(
+                    forCharacterRange: span.range, actualCharacterRange: nil
+                )
+                let rect = layoutManager.boundingRect(
+                    forGlyphRange: glyphRange, in: textContainer
+                ).offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+                if !rect.isEmpty {
+                    addCursorRect(rect, cursor: .pointingHand)
+                }
+            }
+        }
+        // iBeam everywhere else
+        addCursorRect(bounds, cursor: .iBeam)
     }
 
     override func mouseMoved(with event: NSEvent) {
-        guard !searchOverlayPresented else {
-            NSCursor.arrow.set()
-            return
-        }
-        super.mouseMoved(with: event)
-        updateCursor(for: event)
+        // Don't call super — NSTextView.mouseMoved sets the cursor
+        // imperatively, which overrides cursor rects from SwiftUI overlays.
+        // All cursor management is handled by resetCursorRects instead.
     }
 
     override func flagsChanged(with event: NSEvent) {
-        guard !searchOverlayPresented else {
-            NSCursor.arrow.set()
-            return
-        }
         super.flagsChanged(with: event)
-        updateCursorForCurrentLocation(with: event.modifierFlags)
+        window?.invalidateCursorRects(for: self)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -2363,21 +2383,8 @@ private final class LineDeleteOnCutTextView: NSTextView {
         return LinkShrink.span(containing: charIndex, in: linkSpans)
     }
 
-    private func updateCursor(for event: NSEvent) {
-        guard !searchOverlayPresented else { return }
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let point = convert(event.locationInWindow, from: nil)
-        let shouldShowPointer = modifiers.contains(.command) && linkSpan(at: point) != nil
-        (shouldShowPointer ? NSCursor.pointingHand : NSCursor.iBeam).set()
-    }
-
-    private func updateCursorForCurrentLocation(with modifiers: NSEvent.ModifierFlags? = nil) {
-        guard !searchOverlayPresented else { return }
-        guard let window else { return }
-        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-        let effectiveModifiers = modifiers?.intersection(.deviceIndependentFlagsMask) ?? NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let shouldShowPointer = effectiveModifiers.contains(.command) && linkSpan(at: point) != nil
-        (shouldShowPointer ? NSCursor.pointingHand : NSCursor.iBeam).set()
+    private func invalidateCursorDisplay() {
+        window?.invalidateCursorRects(for: self)
     }
 }
 
