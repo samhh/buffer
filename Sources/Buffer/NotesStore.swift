@@ -25,6 +25,7 @@ struct DeletedNoteToast: Identifiable {
 final class NotesStore: ObservableObject {
     private static let pinnedXAttrName = "com.buffer.pinned"
     private static let pinnedXAttrValue = "1".data(using: .utf8) ?? Data([49])
+    private static let cursorXAttrName = "com.buffer.cursorPosition"
 
     @Published var text: String = "" {
         didSet {
@@ -32,6 +33,9 @@ final class NotesStore: ObservableObject {
         }
     }
     @Published var deletedNoteToast: DeletedNoteToast?
+    @Published var pendingCursorRestore: NSRange?
+
+    var cursorStateProvider: (() -> NSRange)?
 
     private(set) var lastDeletedNote: DeletedNote?
     var currentNoteFileURL: URL { currentNoteURL }
@@ -39,6 +43,7 @@ final class NotesStore: ObservableObject {
     private let fileManager: FileManager
     private let notesDirectoryURL: URL
     private var currentNoteURL: URL
+    private var lastSavedCursor: NSRange?
 
     init(fileManager: FileManager = .default, notesDirectoryURL: URL? = nil) {
         self.fileManager = fileManager
@@ -88,10 +93,14 @@ final class NotesStore: ObservableObject {
 
     private func save() {
         let wasPinned = isPinned(fileURL: currentNoteURL)
+        let cursor = lastSavedCursor
         do {
             try text.data(using: .utf8)?.write(to: currentNoteURL, options: .atomic)
             if wasPinned {
                 _ = setPinned(true, for: currentNoteURL)
+            }
+            if let cursor {
+                saveCursorPosition(location: cursor.location, length: cursor.length, for: currentNoteURL)
             }
         } catch {
             print("Failed to save notes: \(error)")
@@ -201,6 +210,10 @@ final class NotesStore: ObservableObject {
             return
         }
 
+        if let range = cursorStateProvider?() {
+            saveCursorPosition(location: range.location, length: range.length, for: currentNoteURL)
+        }
+
         deleteCurrentNoteFileIfEmpty()
 
         guard fileManager.fileExists(atPath: fileURL.path) else {
@@ -208,13 +221,17 @@ final class NotesStore: ObservableObject {
         }
 
         currentNoteURL = fileURL
+        lastSavedCursor = nil
+        let savedCursor = loadCursorPosition(for: fileURL)
         guard let data = try? Data(contentsOf: fileURL),
               let saved = String(data: data, encoding: .utf8) else {
             text = ""
+            pendingCursorRestore = nil
             return
         }
 
         text = saved
+        pendingCursorRestore = savedCursor
     }
 
     @discardableResult
@@ -411,6 +428,44 @@ final class NotesStore: ObservableObject {
             }
             let result = removexattr(path, Self.pinnedXAttrName, 0)
             return result == 0 || errno == ENOATTR
+        }
+    }
+
+    func saveCursorPosition(location: Int, length: Int, for fileURL: URL) {
+        if fileURL == currentNoteURL {
+            lastSavedCursor = NSRange(location: location, length: length)
+        }
+        guard fileManager.fileExists(atPath: fileURL.path) else { return }
+        let value = "\(location),\(length)"
+        guard let data = value.data(using: .utf8) else { return }
+        fileURL.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return }
+            data.withUnsafeBytes { bytes in
+                guard let baseAddress = bytes.baseAddress else { return }
+                _ = setxattr(path, Self.cursorXAttrName, baseAddress, bytes.count, 0, 0)
+            }
+        }
+    }
+
+    func loadCursorPosition(for fileURL: URL) -> NSRange? {
+        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+        return fileURL.withUnsafeFileSystemRepresentation { path -> NSRange? in
+            guard let path else { return nil }
+            let size = getxattr(path, Self.cursorXAttrName, nil, 0, 0, 0)
+            guard size > 0 else { return nil }
+            var buffer = [UInt8](repeating: 0, count: Int(size))
+            let readSize = getxattr(path, Self.cursorXAttrName, &buffer, buffer.count, 0, 0)
+            guard readSize > 0,
+                  let str = String(data: Data(buffer.prefix(Int(readSize))), encoding: .utf8) else {
+                return nil
+            }
+            let parts = str.split(separator: ",")
+            guard parts.count == 2,
+                  let location = Int(parts[0]),
+                  let length = Int(parts[1]) else {
+                return nil
+            }
+            return NSRange(location: location, length: length)
         }
     }
 }

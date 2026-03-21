@@ -137,6 +137,10 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         setWindowControlsVisible(false)
         restoreInitialFrame()
 
+        store.cursorStateProvider = { [weak self] in
+            self?.editorBridge.textView?.selectedRange() ?? NSRange(location: 0, length: 0)
+        }
+
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             guard self.window.isVisible else { return event }
@@ -905,6 +909,7 @@ private struct NoteEditorView: View {
                 focusToken: editorState.focusToken,
                 writingModeEnabled: writingModeState.isEnabled,
                 editorBridge: editorBridge,
+                store: store,
                 onUserEdit: onUserEdit
             )
             .padding(EdgeInsets(top: 4, leading: 22, bottom: 24, trailing: 22))
@@ -1578,6 +1583,7 @@ private struct PlainTextEditor: NSViewRepresentable {
     let focusToken: Int
     let writingModeEnabled: Bool
     @ObservedObject var editorBridge: EditorBridge
+    @ObservedObject var store: NotesStore
     let onUserEdit: () -> Void
     private static let editorParagraphStyle: NSParagraphStyle = {
         let style = NSMutableParagraphStyle()
@@ -1590,6 +1596,7 @@ private struct PlainTextEditor: NSViewRepresentable {
         Coordinator(
             text: $text,
             writingModeEnabled: writingModeEnabled,
+            store: store,
             onUserEdit: onUserEdit,
             applyParagraphStyle: { textView, isWritingModeEnabled in
                 applyParagraphStyle(in: textView, writingModeEnabled: isWritingModeEnabled)
@@ -1660,6 +1667,18 @@ private struct PlainTextEditor: NSViewRepresentable {
             if let linkAwareTextView = textView as? LineDeleteOnCutTextView {
                 linkAwareTextView.refreshLinkSpans()
             }
+
+            if let saved = store.pendingCursorRestore {
+                store.pendingCursorRestore = nil
+                let textLength = (textView.string as NSString).length
+                let clampedLocation = min(saved.location, textLength)
+                let clampedLength = min(saved.length, textLength - clampedLocation)
+                let range = NSRange(location: clampedLocation, length: clampedLength)
+                textView.setSelectedRange(range)
+                scheduleOnMain {
+                    textView.scrollRangeToVisible(range)
+                }
+            }
         }
 
         if context.coordinator.lastAppliedWritingModeEnabled != writingModeEnabled {
@@ -1681,6 +1700,7 @@ private struct PlainTextEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
         var writingModeEnabled: Bool
+        let store: NotesStore
         let onUserEdit: () -> Void
         let applyParagraphStyle: (NSTextView, Bool) -> Void
         var lastFocusToken: Int = -1
@@ -1689,11 +1709,13 @@ private struct PlainTextEditor: NSViewRepresentable {
         init(
             text: Binding<String>,
             writingModeEnabled: Bool,
+            store: NotesStore,
             onUserEdit: @escaping () -> Void,
             applyParagraphStyle: @escaping (NSTextView, Bool) -> Void
         ) {
             _text = text
             self.writingModeEnabled = writingModeEnabled
+            self.store = store
             self.onUserEdit = onUserEdit
             self.applyParagraphStyle = applyParagraphStyle
         }
@@ -1723,6 +1745,9 @@ private struct PlainTextEditor: NSViewRepresentable {
             let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
             textView.layoutManager?.invalidateDisplay(forCharacterRange: fullRange)
             textView.setNeedsDisplay(textView.bounds)
+
+            let range = textView.selectedRange()
+            store.saveCursorPosition(location: range.location, length: range.length, for: store.currentNoteFileURL)
         }
     }
 
