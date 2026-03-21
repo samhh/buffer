@@ -1947,6 +1947,31 @@ private final class LineDeleteOnCutTextView: NSTextView {
             }
         }
 
+        // Backtick with selection: toggle code span
+        if event.characters == "`", selectedRange().length > 0 {
+            let sel = selectedRange()
+            let nsText = string as NSString
+            let selected = nsText.substring(with: sel)
+            if selected.hasPrefix("`"), selected.hasSuffix("`"), selected.count >= 2 {
+                // Unwrap: remove surrounding backticks
+                let inner = String(selected.dropFirst().dropLast())
+                if shouldChangeText(in: sel, replacementString: inner) {
+                    textStorage?.replaceCharacters(in: sel, with: inner)
+                    didChangeText()
+                    setSelectedRange(NSRange(location: sel.location, length: inner.count))
+                }
+            } else {
+                // Wrap in backticks
+                let wrapped = "`\(selected)`"
+                if shouldChangeText(in: sel, replacementString: wrapped) {
+                    textStorage?.replaceCharacters(in: sel, with: wrapped)
+                    didChangeText()
+                    setSelectedRange(NSRange(location: sel.location, length: wrapped.count))
+                }
+            }
+            return
+        }
+
         let isPlainEnter = (event.keyCode == 36 || event.keyCode == 76) && !modifiers.contains(.command) && !modifiers.contains(.control) && !modifiers.contains(.option)
         if isPlainEnter {
             insertNewline(self)
