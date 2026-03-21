@@ -316,4 +316,40 @@ final class SmartListEditingTests: XCTestCase {
     private func makeEdit(_ action: SmartListAction, to text: String, selection: NSRange) -> SmartListEdit {
         SmartListEditing.makeEdit(text: text, selection: selection, action: action)
     }
+
+    // MARK: - Code fence detection
+
+    func testIsInsideCodeFenceReturnsFalseOutsideFence() {
+        let text = "hello\nworld" as NSString
+        XCTAssertFalse(SmartListEditing.isInsideCodeFence(text: text, location: 3))
+    }
+
+    func testIsInsideCodeFenceReturnsTrueBetweenFences() {
+        let text = "```\nsome code\n```" as NSString
+        // Location 4 is on the "some code" line
+        XCTAssertTrue(SmartListEditing.isInsideCodeFence(text: text, location: 4))
+    }
+
+    func testIsInsideCodeFenceReturnsFalseAfterClosingFence() {
+        let text = "```\nsome code\n```\nafter" as NSString
+        // "after" starts at position 18
+        let afterStart = (text as String).range(of: "after")!.lowerBound.utf16Offset(in: text as String)
+        XCTAssertFalse(SmartListEditing.isInsideCodeFence(text: text, location: afterStart))
+    }
+
+    func testIsInsideCodeFenceWithLanguageTag() {
+        let text = "```swift\nlet x = 1\n```" as NSString
+        XCTAssertTrue(SmartListEditing.isInsideCodeFence(text: text, location: 10))
+    }
+
+    func testSmartEditUnhandledInsideCodeFence() {
+        let text = "```\n- item\n```"
+        // Caret on "- item" line — inside fence, so indent should not apply
+        let edit = SmartListEditing.makeEdit(text: text, selection: NSRange(location: 4, length: 0), action: .indent)
+        // The edit itself doesn't know about fences — the guard is in the controller.
+        // But isInsideCodeFence should return true here.
+        let nsText = text as NSString
+        XCTAssertTrue(SmartListEditing.isInsideCodeFence(text: nsText, location: 4))
+        _ = edit // suppress unused warning
+    }
 }

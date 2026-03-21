@@ -2282,6 +2282,10 @@ private final class LineDeleteOnCutTextView: NSTextView {
 
     private func applySmartListEdit(action: SmartListAction) -> Bool {
         let currentText = string
+        let nsText = currentText as NSString
+        if SmartListEditing.isInsideCodeFence(text: nsText, location: selectedRange().location) {
+            return false
+        }
         let edit = SmartListEditing.makeEdit(text: currentText, selection: selectedRange(), action: action)
         guard edit.handled else {
             return false
