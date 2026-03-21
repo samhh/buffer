@@ -2134,7 +2134,7 @@ final class ListBulletLayoutManager: NSLayoutManager {
             if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
                 return NSColor(srgbRed: 0.50, green: 0.50, blue: 0.54, alpha: 1)
             }
-            return NSColor(srgbRed: 0.68, green: 0.68, blue: 0.72, alpha: 1)
+            return NSColor(srgbRed: 0.42, green: 0.42, blue: 0.46, alpha: 1)
         }
         markerColor.setStroke()
 
