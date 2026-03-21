@@ -18,7 +18,6 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     private let searchState = NoteSearchState()
     private let inNoteFindState = InNoteFindState()
     private let editorState = EditorFocusState()
-    private let writingModeState = WritingModeState()
     private let editorBridge = EditorBridge()
     private let window: NSPanel
     private let defaults = UserDefaults.standard
@@ -28,8 +27,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     private var globalClickMonitor: Any?
     private var inNoteFindHighlightedRange: NSRange?
     private var inNoteFindSecondaryRanges: [NSRange] = []
-    private let normalDefaultFrame = NSRect(x: 0, y: 0, width: 500, height: 400)
-    private let writingDefaultFrame = NSRect(x: 0, y: 0, width: 900, height: 700)
+    private let defaultFrame = NSRect(x: 0, y: 0, width: 500, height: 400)
 
     private func hasOnlyCommandModifiers(_ modifiers: NSEvent.ModifierFlags) -> Bool {
         let relevant = modifiers.intersection(.deviceIndependentFlagsMask)
@@ -62,7 +60,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
 
         window = NotesPanel(
-            contentRect: normalDefaultFrame,
+            contentRect: defaultFrame,
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -75,7 +73,6 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
             searchState: searchState,
             inNoteFindState: inNoteFindState,
             editorState: editorState,
-            writingModeState: writingModeState,
             editorBridge: editorBridge,
             onUserEdit: { [weak self] in
                 withAnimation(.easeOut(duration: 0.18)) {
@@ -160,16 +157,6 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
 
             if self.inNoteFindState.isPresented {
                 return self.handleInNoteFindKey(event)
-            }
-
-            let isCommandEnter = (event.keyCode == 36 || event.keyCode == 76)
-                && modifiers.contains(.command)
-                && !modifiers.contains(.shift)
-                && !modifiers.contains(.option)
-                && !modifiers.contains(.control)
-            if isCommandEnter {
-                self.toggleWritingMode()
-                return nil
             }
 
             let isCommandN = self.matchesCommandKey(event, key: "n")
@@ -284,7 +271,6 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
         // focus without an explicit user click away from the panel.
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self, self.window.isVisible else { return }
-            if self.writingModeState.isEnabled { return }
             self.hideSearch()
             self.hideInNoteFind(refocusEditor: false)
             self.window.orderOut(nil)
@@ -358,7 +344,7 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowDidResize(_ notification: Notification) {
-        saveFrame(forWritingModeEnabled: writingModeState.isEnabled)
+        saveFrame()
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -510,17 +496,6 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     private func bringToFront() {
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
-    }
-
-    private func toggleWritingMode() {
-        saveFrame(forWritingModeEnabled: writingModeState.isEnabled)
-        writingModeState.isEnabled.toggle()
-        let targetFrame = restoredFrame(forWritingModeEnabled: writingModeState.isEnabled)
-        if !window.isVisible {
-            bringToFront()
-        }
-        window.setFrame(targetFrame, display: true, animate: false)
-        requestEditorFocus()
     }
 
     private func openSearchResult(_ result: NoteSearchResult) {
@@ -777,38 +752,27 @@ final class NotesWindowController: NSObject, NSWindowDelegate {
     }
 
     private func restoreInitialFrame() {
-        let restored = restoredFrame(forWritingModeEnabled: false)
-        window.setFrame(restored, display: false)
-    }
-
-    private func restoredFrame(forWritingModeEnabled isWriting: Bool) -> NSRect {
-        let key = frameDefaultsKey(forWritingModeEnabled: isWriting)
+        let key = "window.frame.normal"
         if let frameString = defaults.string(forKey: key) {
-            return NSRectFromString(frameString)
+            window.setFrame(NSRectFromString(frameString), display: false)
+        } else {
+            let referenceScreen = window.screen ?? NSScreen.main
+            if let screenFrame = referenceScreen?.visibleFrame {
+                let frame = NSRect(
+                    x: screenFrame.midX - (defaultFrame.width / 2),
+                    y: screenFrame.midY - (defaultFrame.height / 2),
+                    width: defaultFrame.width,
+                    height: defaultFrame.height
+                )
+                window.setFrame(frame, display: false)
+            } else {
+                window.setFrame(defaultFrame, display: false)
+            }
         }
-        return centeredDefaultFrame(forWritingModeEnabled: isWriting)
     }
 
-    private func centeredDefaultFrame(forWritingModeEnabled isWriting: Bool) -> NSRect {
-        let defaultFrame = isWriting ? writingDefaultFrame : normalDefaultFrame
-        let referenceScreen = window.screen ?? NSScreen.main
-        guard let screenFrame = referenceScreen?.visibleFrame else {
-            return defaultFrame
-        }
-        return NSRect(
-            x: screenFrame.midX - (defaultFrame.width / 2),
-            y: screenFrame.midY - (defaultFrame.height / 2),
-            width: defaultFrame.width,
-            height: defaultFrame.height
-        )
-    }
-
-    private func saveFrame(forWritingModeEnabled isWriting: Bool) {
-        defaults.set(NSStringFromRect(window.frame), forKey: frameDefaultsKey(forWritingModeEnabled: isWriting))
-    }
-
-    private func frameDefaultsKey(forWritingModeEnabled isWriting: Bool) -> String {
-        isWriting ? "window.frame.writing" : "window.frame.normal"
+    private func saveFrame() {
+        defaults.set(NSStringFromRect(window.frame), forKey: "window.frame.normal")
     }
 }
 
@@ -859,11 +823,6 @@ private final class EditorFocusState: ObservableObject {
 }
 
 @MainActor
-private final class WritingModeState: ObservableObject {
-    @Published var isEnabled = false
-}
-
-@MainActor
 private final class EditorBridge: ObservableObject {
     weak var textView: NSTextView?
 }
@@ -873,7 +832,6 @@ private struct NoteEditorView: View {
     @ObservedObject var searchState: NoteSearchState
     @ObservedObject var inNoteFindState: InNoteFindState
     @ObservedObject var editorState: EditorFocusState
-    @ObservedObject var writingModeState: WritingModeState
     @ObservedObject var editorBridge: EditorBridge
     let onUserEdit: () -> Void
     let onQueryChange: (String) -> Void
@@ -907,7 +865,6 @@ private struct NoteEditorView: View {
                     set: { store.text = $0 }
                 ),
                 focusToken: editorState.focusToken,
-                writingModeEnabled: writingModeState.isEnabled,
                 editorBridge: editorBridge,
                 store: store,
                 onUserEdit: onUserEdit
@@ -1581,7 +1538,6 @@ private struct DottedPaperOverlay: View {
 private struct PlainTextEditor: NSViewRepresentable {
     @Binding var text: String
     let focusToken: Int
-    let writingModeEnabled: Bool
     @ObservedObject var editorBridge: EditorBridge
     @ObservedObject var store: NotesStore
     let onUserEdit: () -> Void
@@ -1595,11 +1551,10 @@ private struct PlainTextEditor: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             text: $text,
-            writingModeEnabled: writingModeEnabled,
             store: store,
             onUserEdit: onUserEdit,
-            applyParagraphStyle: { textView, isWritingModeEnabled in
-                applyParagraphStyle(in: textView, writingModeEnabled: isWritingModeEnabled)
+            applyParagraphStyle: { textView in
+                applyParagraphStyle(in: textView)
             }
         )
     }
@@ -1636,7 +1591,7 @@ private struct PlainTextEditor: NSViewRepresentable {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.autoresizingMask = NSView.AutoresizingMask.width
         textView.string = text
-        applyParagraphStyle(in: textView, writingModeEnabled: writingModeEnabled)
+        applyParagraphStyle(in: textView)
         Coordinator.applyCodeStyling(in: textView)
         textView.refreshLinkSpans()
         editorBridge.textView = textView
@@ -1656,10 +1611,9 @@ private struct PlainTextEditor: NSViewRepresentable {
             return
         }
         editorBridge.textView = textView
-        context.coordinator.writingModeEnabled = writingModeEnabled
         if textView.string != text {
             textView.string = text
-            applyParagraphStyle(in: textView, writingModeEnabled: writingModeEnabled)
+            applyParagraphStyle(in: textView)
             Coordinator.applyCodeStyling(in: textView)
             if let linkAwareTextView = textView as? LineDeleteOnCutTextView {
                 linkAwareTextView.refreshLinkSpans()
@@ -1678,15 +1632,6 @@ private struct PlainTextEditor: NSViewRepresentable {
             }
         }
 
-        if context.coordinator.lastAppliedWritingModeEnabled != writingModeEnabled {
-            context.coordinator.lastAppliedWritingModeEnabled = writingModeEnabled
-            applyParagraphStyle(in: textView, writingModeEnabled: writingModeEnabled)
-            Coordinator.applyCodeStyling(in: textView)
-            let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
-            textView.layoutManager?.invalidateDisplay(forCharacterRange: fullRange)
-            textView.setNeedsDisplay(textView.bounds)
-        }
-
         if context.coordinator.lastFocusToken != focusToken {
             context.coordinator.lastFocusToken = focusToken
             scheduleOnMain {
@@ -1697,22 +1642,18 @@ private struct PlainTextEditor: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
-        var writingModeEnabled: Bool
         let store: NotesStore
         let onUserEdit: () -> Void
-        let applyParagraphStyle: (NSTextView, Bool) -> Void
+        let applyParagraphStyle: (NSTextView) -> Void
         var lastFocusToken: Int = -1
-        var lastAppliedWritingModeEnabled: Bool?
 
         init(
             text: Binding<String>,
-            writingModeEnabled: Bool,
             store: NotesStore,
             onUserEdit: @escaping () -> Void,
-            applyParagraphStyle: @escaping (NSTextView, Bool) -> Void
+            applyParagraphStyle: @escaping (NSTextView) -> Void
         ) {
             _text = text
-            self.writingModeEnabled = writingModeEnabled
             self.store = store
             self.onUserEdit = onUserEdit
             self.applyParagraphStyle = applyParagraphStyle
@@ -1722,7 +1663,7 @@ private struct PlainTextEditor: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else {
                 return
             }
-            applyParagraphStyle(textView, writingModeEnabled)
+            applyParagraphStyle(textView)
             Self.applyCodeStyling(in: textView)
             if let linkAwareTextView = textView as? LineDeleteOnCutTextView {
                 linkAwareTextView.refreshLinkSpans()
@@ -1769,20 +1710,10 @@ private struct PlainTextEditor: NSViewRepresentable {
         (SmartListEditing.listMarker as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width
     }()
 
-    private func applyParagraphStyle(in textView: NSTextView, writingModeEnabled: Bool) {
+    private func applyParagraphStyle(in textView: NSTextView) {
         guard let textStorage = textView.textStorage else { return }
         let nsText = textView.string as NSString
         let fullRange = NSRange(location: 0, length: nsText.length)
-
-        if writingModeEnabled {
-            textStorage.beginEditing()
-            if fullRange.length > 0 {
-                textStorage.addAttribute(.paragraphStyle, value: Self.editorParagraphStyle, range: fullRange)
-            }
-            textStorage.endEditing()
-            textView.typingAttributes[.paragraphStyle] = Self.editorParagraphStyle
-            return
-        }
 
         guard fullRange.length > 0 else {
             textView.typingAttributes[.paragraphStyle] = Self.editorParagraphStyle

@@ -31,7 +31,6 @@ Buffer will start backgrounded in the menu bar. Notes are stored in plaintext at
 - Delete note: `Cmd+d`
 - Note picker / global search: `Cmd+p`, `Cmd+Shift+f`
 - Pin note in picker: `Cmd+Shift+p`
-- Toggle writing mode (editor only): `Cmd+Enter`
 - Settings: `Cmd+,`
 
 ## Development
