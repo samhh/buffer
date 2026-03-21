@@ -1637,8 +1637,8 @@ private struct PlainTextEditor: NSViewRepresentable {
         textView.autoresizingMask = NSView.AutoresizingMask.width
         textView.string = text
         applyParagraphStyle(in: textView, writingModeEnabled: writingModeEnabled)
-        textView.refreshLinkSpans()
         Coordinator.applyCodeStyling(in: textView)
+        textView.refreshLinkSpans()
         editorBridge.textView = textView
 
         let scrollView = NSScrollView()
@@ -1660,10 +1660,10 @@ private struct PlainTextEditor: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
             applyParagraphStyle(in: textView, writingModeEnabled: writingModeEnabled)
+            Coordinator.applyCodeStyling(in: textView)
             if let linkAwareTextView = textView as? LineDeleteOnCutTextView {
                 linkAwareTextView.refreshLinkSpans()
             }
-            Coordinator.applyCodeStyling(in: textView)
 
             if let saved = store.pendingCursorRestore {
                 store.pendingCursorRestore = nil
@@ -1722,11 +1722,11 @@ private struct PlainTextEditor: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else {
                 return
             }
+            applyParagraphStyle(textView, writingModeEnabled)
+            Self.applyCodeStyling(in: textView)
             if let linkAwareTextView = textView as? LineDeleteOnCutTextView {
                 linkAwareTextView.refreshLinkSpans()
             }
-            applyParagraphStyle(textView, writingModeEnabled)
-            Self.applyCodeStyling(in: textView)
             text = textView.string
             let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
             textView.layoutManager?.invalidateDisplay(forCharacterRange: fullRange)
@@ -1738,7 +1738,7 @@ private struct PlainTextEditor: NSViewRepresentable {
             guard let textStorage = textView.textStorage else { return }
             let nsText = textView.string as NSString
             let codeSpans = CodeStyling.detectSpans(in: nsText)
-            let linkSpans = LinkShrink.detectLinks(in: nsText)
+            let linkSpans = LinkShrink.detectLinks(in: nsText, excluding: codeSpans)
             CodeStyling.applyAttributes(to: textStorage, spans: codeSpans, linkSpans: linkSpans)
             if let layoutManager = textView.layoutManager as? ListBulletLayoutManager {
                 layoutManager.codeSpans = codeSpans
@@ -1854,7 +1854,8 @@ private final class LineDeleteOnCutTextView: NSTextView {
     }
 
     func refreshLinkSpans() {
-        linkSpans = LinkShrink.detectLinks(in: string as NSString)
+        let codeSpans = CodeStyling.detectSpans(in: string as NSString)
+        linkSpans = LinkShrink.detectLinks(in: string as NSString, excluding: codeSpans)
         if let remembered = rememberedLinkRangeForVerticalNavigation,
            LinkShrink.span(containing: remembered.location, in: linkSpans) == nil {
             rememberedLinkRangeForVerticalNavigation = nil

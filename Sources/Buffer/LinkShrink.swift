@@ -28,7 +28,7 @@ enum LinkShrink {
     private static let fallbackHeadLength = 16
     private static let fallbackTailLength = 12
 
-    static func detectLinks(in text: NSString) -> [ShrunkLinkSpan] {
+    static func detectLinks(in text: NSString, excluding codeSpans: [CodeSpan] = []) -> [ShrunkLinkSpan] {
         guard text.length > 0, let detector else {
             return []
         }
@@ -49,6 +49,12 @@ enum LinkShrink {
             guard let adjustedRange = trimmedRange(from: match.range, in: text) else {
                 continue
             }
+
+            // Skip links that fall inside code spans or fences.
+            if codeSpans.contains(where: { NSIntersectionRange($0.fullRange, adjustedRange).length > 0 }) {
+                continue
+            }
+
             let normalizedURLString = text.substring(with: adjustedRange)
             guard !normalizedURLString.isEmpty else {
                 continue

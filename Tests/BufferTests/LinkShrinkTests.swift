@@ -154,4 +154,47 @@ final class LinkShrinkTests: XCTestCase {
         XCTAssertEqual(LinkShrink.span(containing: 11, in: spans), spanB)
         XCTAssertNil(LinkShrink.span(containing: 8, in: spans))
     }
+
+    // MARK: - Code span exclusion
+
+    func testDetectLinksExcludesURLInsideInlineCode() {
+        let text = "see `https://example.com/a/b` for details"
+        let nsText = text as NSString
+        let codeSpans = CodeStyling.detectSpans(in: nsText)
+        let links = LinkShrink.detectLinks(in: nsText, excluding: codeSpans)
+
+        XCTAssertEqual(codeSpans.count, 1)
+        XCTAssertEqual(links.count, 0)
+    }
+
+    func testDetectLinksExcludesURLInsideCodeFence() {
+        let text = "before\n```\nhttps://example.com/long/path\n```\nafter https://other.com/ok"
+        let nsText = text as NSString
+        let codeSpans = CodeStyling.detectSpans(in: nsText)
+        let links = LinkShrink.detectLinks(in: nsText, excluding: codeSpans)
+
+        XCTAssertEqual(codeSpans.count, 1)
+        XCTAssertEqual(codeSpans[0].kind, .block)
+        XCTAssertEqual(links.count, 1)
+        XCTAssertEqual(links[0].urlString, "https://other.com/ok")
+    }
+
+    func testDetectLinksKeepsURLOutsideCode() {
+        let text = "visit https://example.com/path and `some code`"
+        let nsText = text as NSString
+        let codeSpans = CodeStyling.detectSpans(in: nsText)
+        let links = LinkShrink.detectLinks(in: nsText, excluding: codeSpans)
+
+        XCTAssertEqual(links.count, 1)
+        XCTAssertEqual(links[0].urlString, "https://example.com/path")
+    }
+
+    func testDetectLinksExcludesMultipleURLsInCodeFence() {
+        let text = "```\nhttps://a.com\nhttps://b.com\n```"
+        let nsText = text as NSString
+        let codeSpans = CodeStyling.detectSpans(in: nsText)
+        let links = LinkShrink.detectLinks(in: nsText, excluding: codeSpans)
+
+        XCTAssertEqual(links.count, 0)
+    }
 }
