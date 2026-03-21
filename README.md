@@ -4,7 +4,7 @@
 
 Buffer is a floating notes window for unimportant, semi-ephemeral information.
 
-It optimises for how I used to organically use unsaved editor buffers: capture short-term todos and notes, avoid heavy structure, and organise around indentation.
+It optimises for how I used to organically use unsaved editor buffers: capture short-term todos and notes, avoid heavy structure, and organise around indentation. It uses the same list and code snippet syntax as Markdown that's widely compatible with other apps.
 
 If a note becomes important or warrants more structure, extract it to something like Apple Notes or Linear.
 
@@ -31,6 +31,9 @@ Buffer will start backgrounded in the menu bar. Notes are stored in plaintext at
 - Delete note: `Cmd+d`
 - Note picker / global search: `Cmd+p`, `Cmd+Shift+f`
 - Pin note in picker: `Cmd+Shift+p`
+- Smart tabbing: `Tab`, `Shift+Tab`
+- Move line up/down: `Cmd+Up`, `Cmd+Down`
+- Delete list item incl/ children: `Cmd+x`
 - Settings: `Cmd+,`
 
 ## Development
