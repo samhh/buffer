@@ -45,6 +45,7 @@ Project B               ← depth 0, no marker
 ## Conventions
 
 - No external dependencies — keep it that way unless discussed.
+- Use the **Catppuccin** color palette everywhere: Latte for light mode, Mocha for dark mode. Source: https://catppuccin.com/palette/. See `TitlePatternIcon.swift` for the existing accent rings.
 - Prefer native macOS UI idioms and Liquid Glass styling. Use system-provided materials and vibrancy rather than custom chrome.
 - The app supports light and dark themes (plus a system-follow mode). Keep both looking good.
 - Test files mirror source file names (e.g. `LinkShrink.swift` → `LinkShrinkTests.swift`). Liberally add unit tests and snapshot tests — especially for rendering and layout logic. Snapshot PNGs go in `Tests/BufferTests/__Snapshots__/`.

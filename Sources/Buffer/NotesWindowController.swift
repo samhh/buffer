@@ -1610,7 +1610,6 @@ private struct PlainTextEditor: NSViewRepresentable {
         textStorage.addLayoutManager(layoutManager)
         let textContainer = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         textContainer.widthTracksTextView = true
-        layoutManager.showsStructuralFormatting = !writingModeEnabled
         layoutManager.addTextContainer(textContainer)
 
         let textView = LineDeleteOnCutTextView(frame: .zero, textContainer: textContainer)
@@ -1657,10 +1656,6 @@ private struct PlainTextEditor: NSViewRepresentable {
         }
         editorBridge.textView = textView
         context.coordinator.writingModeEnabled = writingModeEnabled
-        if let layoutManager = textView.layoutManager as? ListBulletLayoutManager {
-            layoutManager.showsStructuralFormatting = !writingModeEnabled
-        }
-
         if textView.string != text {
             textView.string = text
             applyParagraphStyle(in: textView, writingModeEnabled: writingModeEnabled)
@@ -2345,14 +2340,10 @@ final class ListBulletLayoutManager: NSLayoutManager {
     private var compressedLinkRanges: [NSRange] = []
     /// Spans whose display text should be drawn in place of the compressed originals.
     private(set) var displaySpans: [ShrunkLinkSpan] = []
-    var showsStructuralFormatting = true
 
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
         drawShrunkLinks(forGlyphRange: glyphsToShow, at: origin)
-        if showsStructuralFormatting {
-            drawContinuationFade(forGlyphRange: glyphsToShow, at: origin)
-        }
     }
 
     func updateLinkCompression(spans: [ShrunkLinkSpan], activeRanges: [NSRange]) {
@@ -2496,52 +2487,6 @@ final class ListBulletLayoutManager: NSLayoutManager {
         }
     }
 
-    private func drawContinuationFade(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
-        guard let textStorage else { return }
-        let text = textStorage.string as NSString
-        guard text.length > 0 else { return }
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-
-        let glyphEnd = NSMaxRange(glyphsToShow)
-        var glyphIndex = glyphsToShow.location
-        while glyphIndex < glyphEnd {
-            var fragmentGlyphRange = NSRange(location: 0, length: 0)
-            let lineRect = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &fragmentGlyphRange)
-            guard fragmentGlyphRange.length > 0 else {
-                glyphIndex += 1
-                continue
-            }
-
-            defer { glyphIndex = NSMaxRange(fragmentGlyphRange) }
-            if NSIntersectionRange(fragmentGlyphRange, glyphsToShow).length == 0 {
-                continue
-            }
-
-            let charRange = characterRange(forGlyphRange: fragmentGlyphRange, actualGlyphRange: nil)
-            guard charRange.location != NSNotFound, charRange.length > 0 else {
-                continue
-            }
-
-            let hardLineStart = text.lineRange(for: NSRange(location: charRange.location, length: 0)).location
-            guard charRange.location > hardLineStart else {
-                continue
-            }
-
-            let fadeRect = NSRect(
-                x: origin.x + lineRect.minX,
-                y: origin.y + lineRect.minY,
-                width: lineRect.width,
-                height: lineRect.height
-            )
-
-            context.saveGState()
-            context.setBlendMode(.sourceAtop)
-            context.setFillColor(continuationFadeBlendColor.cgColor)
-            context.fill(fadeRect)
-            context.restoreGState()
-        }
-    }
-
     private func inactiveSpansForDisplay(spans: [ShrunkLinkSpan], activeRanges: [NSRange]) -> [ShrunkLinkSpan] {
         guard !activeRanges.isEmpty else {
             return spans
@@ -2551,15 +2496,6 @@ final class ListBulletLayoutManager: NSLayoutManager {
 
     private func intersectsAnyActiveRange(_ range: NSRange, activeRanges: [NSRange]) -> Bool {
         activeRanges.contains { NSIntersectionRange($0, range).length > 0 }
-    }
-
-    private var continuationFadeBlendColor: NSColor {
-        NSColor(name: nil) { appearance in
-            if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
-                return NSColor(white: 0, alpha: 0.28)
-            }
-            return NSColor(white: 1, alpha: 0.34)
-        }
     }
 
     private var primaryTextView: NSTextView? {
