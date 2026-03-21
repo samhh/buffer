@@ -22,21 +22,21 @@ Notes are stored as plaintext in `~/Library/Application Support/Buffer`. Pinning
 
 ## Indentation & Subitems
 
-Lines are organized into a hierarchy using 4-space indentation. Depth = `floor(leading_spaces / 4)`. There is no hard nesting limit.
+Lines are organized into a hierarchy using markdown-style `- ` list markers and 4-space indentation. Depth = `floor(leading_spaces / 4)` when a marker is present. There is no hard nesting limit. Plain text (no marker) is depth 0; the `- ` marker appears from the first indent onwards but can also exist at depth 0 (no leading spaces).
 
 ```
-Project A           ← depth 0
-    Task 1          ← depth 1 (child of Project A)
-        Subtask     ← depth 2 (child of Task 1)
-    Task 2          ← depth 1
-Project B           ← depth 0
+Project A               ← depth 0, no marker (plain text)
+- Task 1                ← depth 0 with marker
+    - Subtask           ← depth 1 (child of Task 1)
+        - Deep item     ← depth 2
+Project B               ← depth 0, no marker
 ```
 
 **Smart list editing** (`SmartListEditing.swift`) handles keyboard interactions:
-- **Enter** — inherits the current line's indent level. On an empty indented line, clears the indent instead.
-- **Tab** — indents selected lines by 4 spaces. On an empty line, indents to one level deeper than the previous line.
-- **Shift+Tab** — unindents selected lines by up to 4 spaces.
-- **Backspace** — when the caret is within leading whitespace, deletes all leading spaces at once.
+- **Enter** — inherits the current line's indent level and `- ` marker. On an empty list item (e.g. `    - ` or bare `- `), clears the indent and marker.
+- **Tab** — first press on a plain line adds `- ` marker (no spaces). Subsequent presses add 4-space indent levels. On an empty line, indents one level deeper than the previous line.
+- **Shift+Tab** — removes one indent level (4 spaces). At depth 0 with a marker, removes the `- ` marker. Without a marker, no-op.
+- **Backspace** — when the caret is within the indent zone (leading whitespace + `- ` marker), deletes the entire zone at once.
 - **Opt+Up/Down** — moves entire lines up/down, preserving indentation.
 - **Cmd+X** (no selection) — deletes the current line **and all deeper subitems** below it. Stops at the first non-empty line with equal or lesser depth. Empty lines between subitems are included; trailing empty lines are not.
 
