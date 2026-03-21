@@ -123,7 +123,7 @@ enum CodeStyling {
     /// so they can be efficiently cleared before re-application.
     static let isCodeStyledKey = NSAttributedString.Key("BufferCodeStyled")
 
-    @MainActor static let codeFont = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+    @MainActor static let codeFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     @MainActor private static let delimiterColor = NSColor.tertiaryLabelColor
     static let codeBackgroundColor = NSColor.quaternaryLabelColor
 
@@ -171,29 +171,13 @@ enum CodeStyling {
                 textStorage.addAttribute(.font, value: codeFont, range: span.contentRange)
             }
 
-            // For blocks, apply monospaced font to all visible characters
-            // (but NOT newlines — changing font on newlines alters line height).
+            // For blocks, apply monospaced font to the entire range including
+            // newlines so that empty lines have consistent height from the start
+            // (avoids a vertical jump when the first character is typed).
+            // Background is drawn as one continuous rect by the layout manager,
+            // so shorter line fragments from the smaller font don't cause gaps.
             if span.kind == .block {
-                let nsText = textStorage.string as NSString
-                var loc = span.fullRange.location
-                let end = NSMaxRange(span.fullRange)
-                while loc < end {
-                    let lineRange = nsText.lineRange(for: NSRange(location: loc, length: 0))
-                    // Apply font to the line content (excluding trailing newline).
-                    var lineContentEnd = NSMaxRange(lineRange)
-                    if lineContentEnd > loc && lineContentEnd <= nsText.length {
-                        let lastChar = nsText.character(at: lineContentEnd - 1)
-                        if lastChar == 0x0A || lastChar == 0x0D {
-                            lineContentEnd -= 1
-                        }
-                    }
-                    let clippedStart = max(loc, span.fullRange.location)
-                    let clippedEnd = min(lineContentEnd, end)
-                    if clippedEnd > clippedStart {
-                        textStorage.addAttribute(.font, value: codeFont, range: NSRange(location: clippedStart, length: clippedEnd - clippedStart))
-                    }
-                    loc = NSMaxRange(lineRange)
-                }
+                textStorage.addAttribute(.font, value: codeFont, range: span.fullRange)
             }
 
             // Background is drawn by ListBulletLayoutManager, not via .backgroundColor.
