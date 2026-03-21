@@ -1638,6 +1638,7 @@ private struct PlainTextEditor: NSViewRepresentable {
         textView.string = text
         applyParagraphStyle(in: textView, writingModeEnabled: writingModeEnabled)
         textView.refreshLinkSpans()
+        Coordinator.applyCodeStyling(in: textView)
         editorBridge.textView = textView
 
         let scrollView = NSScrollView()
@@ -1662,6 +1663,7 @@ private struct PlainTextEditor: NSViewRepresentable {
             if let linkAwareTextView = textView as? LineDeleteOnCutTextView {
                 linkAwareTextView.refreshLinkSpans()
             }
+            Coordinator.applyCodeStyling(in: textView)
 
             if let saved = store.pendingCursorRestore {
                 store.pendingCursorRestore = nil
@@ -1679,6 +1681,7 @@ private struct PlainTextEditor: NSViewRepresentable {
         if context.coordinator.lastAppliedWritingModeEnabled != writingModeEnabled {
             context.coordinator.lastAppliedWritingModeEnabled = writingModeEnabled
             applyParagraphStyle(in: textView, writingModeEnabled: writingModeEnabled)
+            Coordinator.applyCodeStyling(in: textView)
             let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
             textView.layoutManager?.invalidateDisplay(forCharacterRange: fullRange)
             textView.setNeedsDisplay(textView.bounds)
@@ -1723,11 +1726,23 @@ private struct PlainTextEditor: NSViewRepresentable {
                 linkAwareTextView.refreshLinkSpans()
             }
             applyParagraphStyle(textView, writingModeEnabled)
+            Self.applyCodeStyling(in: textView)
             text = textView.string
             let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
             textView.layoutManager?.invalidateDisplay(forCharacterRange: fullRange)
             textView.setNeedsDisplay(textView.bounds)
             onUserEdit()
+        }
+
+        @MainActor static func applyCodeStyling(in textView: NSTextView) {
+            guard let textStorage = textView.textStorage else { return }
+            let nsText = textView.string as NSString
+            let codeSpans = CodeStyling.detectSpans(in: nsText)
+            let linkSpans = LinkShrink.detectLinks(in: nsText)
+            CodeStyling.applyAttributes(to: textStorage, spans: codeSpans, linkSpans: linkSpans)
+            if let layoutManager = textView.layoutManager as? ListBulletLayoutManager {
+                layoutManager.codeSpans = codeSpans
+            }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -2340,6 +2355,13 @@ final class ListBulletLayoutManager: NSLayoutManager {
     private var compressedLinkRanges: [NSRange] = []
     /// Spans whose display text should be drawn in place of the compressed originals.
     private(set) var displaySpans: [ShrunkLinkSpan] = []
+    var showsStructuralFormatting = true
+    var codeSpans: [CodeSpan] = []
+
+    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+        drawCodeBackgrounds(forGlyphRange: glyphsToShow, at: origin)
+    }
 
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
@@ -2434,6 +2456,85 @@ final class ListBulletLayoutManager: NSLayoutManager {
         textStorage.endEditing()
         compressedLinkRanges.removeAll(keepingCapacity: true)
         displaySpans.removeAll(keepingCapacity: true)
+    }
+
+    /// The expected line fragment height for a non-terminal line. The last line
+    /// of the document gets a shorter fragment rect from NSLayoutManager because
+    /// there is no following newline. We measure the first line of a two-line
+    /// string to capture the full height including lineSpacing.
+    private static let referenceLineHeight: CGFloat = {
+        let font = NSFont.systemFont(ofSize: 14)
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = 2
+        style.paragraphSpacing = 2
+        let storage = NSTextStorage(string: "X\nX", attributes: [.font: font, .paragraphStyle: style])
+        let lm = NSLayoutManager()
+        storage.addLayoutManager(lm)
+        let tc = NSTextContainer(size: NSSize(width: 500, height: CGFloat.greatestFiniteMagnitude))
+        lm.addTextContainer(tc)
+        lm.ensureLayout(for: tc)
+        return lm.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).height
+    }()
+
+    private func drawCodeBackgrounds(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard !codeSpans.isEmpty else { return }
+        guard let textContainer = textContainers.first else { return }
+        let bgColor = CodeStyling.codeBackgroundColor
+        let minLineHeight = Self.referenceLineHeight
+
+        for span in codeSpans {
+            let charRange: NSRange
+            if span.kind == .block {
+                charRange = span.fullRange
+            } else {
+                charRange = span.contentRange
+            }
+            guard charRange.length > 0 else { continue }
+            let spanGlyphRange = glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+            guard spanGlyphRange.location != NSNotFound,
+                  NSIntersectionRange(spanGlyphRange, glyphsToShow).length > 0 else {
+                continue
+            }
+
+            if span.kind == .block {
+                // Draw full-width background for each line fragment in the block.
+                var glyphIndex = spanGlyphRange.location
+                let glyphEnd = NSMaxRange(spanGlyphRange)
+                while glyphIndex < glyphEnd {
+                    var fragmentRange = NSRange(location: 0, length: 0)
+                    let lineRect = lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &fragmentRange)
+                    guard fragmentRange.length > 0 else {
+                        glyphIndex += 1
+                        continue
+                    }
+                    let height = max(lineRect.height, minLineHeight)
+                    let rect = NSRect(
+                        x: origin.x + lineRect.minX,
+                        y: origin.y + lineRect.minY,
+                        width: lineRect.width,
+                        height: height
+                    )
+                    bgColor.setFill()
+                    rect.fill()
+                    glyphIndex = NSMaxRange(fragmentRange)
+                }
+            } else {
+                // Inline: draw a rect bounded by the glyph positions but using
+                // the full line fragment height for consistent vertical sizing.
+                let boundingRect = boundingRect(forGlyphRange: spanGlyphRange, in: textContainer)
+                let firstGlyph = spanGlyphRange.location
+                let lineRect = lineFragmentRect(forGlyphAt: firstGlyph, effectiveRange: nil)
+                let height = max(lineRect.height, minLineHeight)
+                let rect = NSRect(
+                    x: origin.x + boundingRect.minX,
+                    y: origin.y + lineRect.minY,
+                    width: boundingRect.width,
+                    height: height
+                )
+                bgColor.setFill()
+                rect.fill()
+            }
+        }
     }
 
     private func drawShrunkLinks(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
