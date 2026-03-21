@@ -2481,6 +2481,7 @@ final class ListBulletLayoutManager: NSLayoutManager {
         guard let textContainer = textContainers.first else { return }
         let bgColor = CodeStyling.codeBackgroundColor
         let minLineHeight = Self.referenceLineHeight
+        let vInset: CGFloat = 1  // 1pt top + 1pt bottom = 2pt gap between adjacent lines
 
         for span in codeSpans {
             let charRange: NSRange
@@ -2497,7 +2498,8 @@ final class ListBulletLayoutManager: NSLayoutManager {
             }
 
             if span.kind == .block {
-                // Draw full-width background for each line fragment in the block.
+                // Draw one continuous rect covering all line fragments in the block.
+                var unionRect = NSRect.zero
                 var glyphIndex = spanGlyphRange.location
                 let glyphEnd = NSMaxRange(spanGlyphRange)
                 while glyphIndex < glyphEnd {
@@ -2508,15 +2510,24 @@ final class ListBulletLayoutManager: NSLayoutManager {
                         continue
                     }
                     let height = max(lineRect.height, minLineHeight)
-                    let rect = NSRect(
+                    let fragRect = NSRect(
                         x: origin.x + lineRect.minX,
                         y: origin.y + lineRect.minY,
                         width: lineRect.width,
                         height: height
                     )
+                    unionRect = unionRect == .zero ? fragRect : unionRect.union(fragRect)
+                    glyphIndex = NSMaxRange(fragmentRange)
+                }
+                if unionRect != .zero {
+                    let rect = NSRect(
+                        x: unionRect.minX,
+                        y: unionRect.minY + vInset,
+                        width: unionRect.width,
+                        height: unionRect.height - vInset * 2
+                    )
                     bgColor.setFill()
                     rect.fill()
-                    glyphIndex = NSMaxRange(fragmentRange)
                 }
             } else {
                 // Inline: draw a rect bounded by the glyph positions but using
@@ -2527,9 +2538,9 @@ final class ListBulletLayoutManager: NSLayoutManager {
                 let height = max(lineRect.height, minLineHeight)
                 let rect = NSRect(
                     x: origin.x + boundingRect.minX,
-                    y: origin.y + lineRect.minY,
+                    y: origin.y + lineRect.minY + vInset,
                     width: boundingRect.width,
-                    height: height
+                    height: height - vInset * 2
                 )
                 bgColor.setFill()
                 rect.fill()
